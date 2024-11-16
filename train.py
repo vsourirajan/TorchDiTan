@@ -107,10 +107,10 @@ def main(job_config: JobConfig):
 
     train_dataset = torchvision.datasets.CIFAR10(root='./datasets/cifar10', train=True, transform=transform, download=True)
     test_dataset = torchvision.datasets.CIFAR10(root='./datasets/cifar10', train=False, transform=transform, download=True)
-    print("Downloaded dataset from torchvision...")
+    # print("Downloaded dataset from torchvision...")
     train_loader = DataLoader(train_dataset, batch_size=64, shuffle=True)
     test_loader = DataLoader(test_dataset, batch_size=64, shuffle=False)
-    print("Made data loader...")
+    # print("Made data loader...")
 
     # for images, labels in train_loader:
     #     print(images.shape)
@@ -334,8 +334,21 @@ def main(job_config: JobConfig):
                 with train_context(optional_context_parallel_ctx):
                     #print(input_ids)
                     #print(input_ids.shape)
-                    pred = model(input_ids)
-                    loss = loss_fn(pred, labels)
+
+                    x1 = input_ids
+                    x0 = torch.randn_like(x1).to(x1.device)
+                    print("x0 shape: ", x0.shape)
+                    
+                    bs = x1.shape[0]
+                    t = torch.randn(bs, device=x1.device)
+                    print("t shape: ", t.shape)
+
+                    xt = x0 + t.view(-1, 1, 1, 1) * (x1 - x0)
+                    print("xt shape: ", xt.shape)
+                    
+                    pred = model(xt) #b, c, h, w
+
+                    loss = torch.nn.functional.mse_loss(pred, x1 - x0)
                     # pred.shape=(bs, seq_len, vocab_size)
                     # need to free to before bwd to avoid peaking memory
                     del pred
