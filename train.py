@@ -26,8 +26,12 @@ from torchtitan.parallelisms import (
     models_pipelining_fns,
     ParallelDims,
 )
+
 from torchtitan.profiling import maybe_enable_memory_snapshot, maybe_enable_profiling
 
+import torchvision
+from torch.utils.data import DataLoader
+import torchvision.transforms as transforms
 
 # Enable debug tracing on failure: https://pytorch.org/docs/stable/elastic/errors.html
 @record
@@ -87,15 +91,31 @@ def main(job_config: JobConfig):
     tokenizer = build_tokenizer(tokenizer_type, job_config.model.tokenizer_path)
 
     # build dataloader
-    data_loader = build_hf_data_loader(
-        job_config.training.dataset,
-        job_config.training.dataset_path,
-        tokenizer,
-        job_config.training.batch_size,
-        job_config.training.seq_len,
-        dp_degree,
-        dp_rank,
-    )
+    # data_loader = build_hf_data_loader(
+    #     job_config.training.dataset,
+    #     job_config.training.dataset_path,
+    #     tokenizer,
+    #     job_config.training.batch_size,
+    #     job_config.training.seq_len,
+    #     dp_degree,
+    #     dp_rank,
+    # )
+
+    transform = transforms.Compose([
+        transforms.ToTensor()
+    ])
+
+    train_dataset = torchvision.datasets.CIFAR10(root='./datasets/cifar10', train=True, transform=transform, download=True)
+    test_dataset = torchvision.datasets.CIFAR10(root='./datasets/cifar10', train=False, transform=transform, download=True)
+    print("Downloaded dataset from torchvision...")
+    train_loader = DataLoader(train_dataset, batch_size=64, shuffle=True)
+    test_loader = DataLoader(test_dataset, batch_size=64, shuffle=False)
+    print("Made data loader...")
+
+    # for images, labels in train_loader:
+    #     print(images.shape)
+    #     print(labels.shape)
+    #     break
 
     # build model (using meta init)
     model_cls = model_name_to_cls[model_name]
@@ -189,13 +209,15 @@ def main(job_config: JobConfig):
 
     # load initial checkpoint
     checkpoint = CheckpointManager(
-        dataloader=data_loader,
+        dataloader=train_loader,
         model_parts=model_parts,
         optimizers=optimizers.optimizers,
         lr_schedulers=lr_schedulers.schedulers,
         states={"train_state": train_state},
         job_config=job_config,
     )
+
+
 
     if job_config.checkpoint.create_seed_checkpoint:
         assert (
@@ -227,7 +249,9 @@ def main(job_config: JobConfig):
             }
             metric_logger.log(metrics, step=step)
 
-    data_iterator = iter(data_loader)
+    #data_loader is a DPAwareDataLoader
+    #data_iterator = iter(data_loader)
+    data_iterator = iter(train_loader)
 
     train_context = utils.get_train_context(
         parallel_dims.loss_parallel_enabled,
@@ -263,8 +287,10 @@ def main(job_config: JobConfig):
 
             # get batch
             data_load_start = time.perf_counter()
-            batch = next(data_iterator)
+            batch = next(data_iterator) #[B, L] [B, L] for language
             input_ids, labels = batch
+            print("input ids shape", input_ids.shape, "labels shape", labels.shape)
+            print("input ids device", input_ids.device, "labels device", labels.device)
             ntokens_since_last_log += labels.numel()
             data_loading_times.append(time.perf_counter() - data_load_start)
 
@@ -306,6 +332,8 @@ def main(job_config: JobConfig):
             else:
                 # Non-PP forward / backward
                 with train_context(optional_context_parallel_ctx):
+                    #print(input_ids)
+                    #print(input_ids.shape)
                     pred = model(input_ids)
                     loss = loss_fn(pred, labels)
                     # pred.shape=(bs, seq_len, vocab_size)
