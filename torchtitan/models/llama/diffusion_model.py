@@ -32,8 +32,8 @@ class PatchEmbed(nn.Module):
     """
     def __init__(
             self,
-            img_size=224,
-            patch_size=16,
+            img_size=(224, 224),
+            patch_size=(16, 16),
             in_chans=3,
             embed_dim=768,
             norm_layer=None,
@@ -81,9 +81,9 @@ class DiffusionTransformer(nn.Module):
 
     def __init__(self, 
                  model_args: ModelArgs,
-                 patch_size: int = 2,
+                 patch_size: Tuple[int, int] = (2, 2),
                  input_channels: int = 3,
-                 input_image_size: int = 32):
+                 input_image_size: Tuple[int, int] = (32, 32)):
         super().__init__()
         self.model_args = model_args
         self.vocab_size = model_args.vocab_size
@@ -108,7 +108,7 @@ class DiffusionTransformer(nn.Module):
             model_args.norm_type, dim=model_args.dim, eps=model_args.norm_eps
         )
 
-        self.output = nn.Linear(model_args.dim, model_args.vocab_size, bias=False)
+        self.output = nn.Linear(model_args.dim, patch_size[0] * patch_size[1] * input_channels, bias=False)
         self.init_weights()
 
     def init_weights(
@@ -129,8 +129,8 @@ class DiffusionTransformer(nn.Module):
         buffer_device = buffer_device or self.freqs_cis.device
         with torch.device(buffer_device):
             self.freqs_cis = self._precompute_freqs_cis()
-        if self.tok_embeddings is not None:
-            nn.init.normal_(self.tok_embeddings.weight)
+        # if self.tok_embeddings is not None:
+        #     nn.init.normal_(self.tok_embeddings.weight)
         for layer in self.layers.values():
             if layer is not None:
                 layer.init_weights()
