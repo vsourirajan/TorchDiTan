@@ -8,8 +8,9 @@
 # Copyright (c) Meta Platforms, Inc. All Rights Reserved.
 
 from torchtitan.models.llama.model import ModelArgs, Transformer
+from torchtitan.models.llama.diffusion_model import DiffusionTransformer
 
-__all__ = ["Transformer"]
+__all__ = ["Transformer", "DiffusionTransformer"]
 
 llama2_configs = {
     "debugmodel": ModelArgs(dim=256, n_layers=8, n_heads=16),
@@ -57,4 +58,8 @@ llama3_configs = {
         multiple_of=4096,
         rope_theta=500000,
     ),
+}
+
+llama3_diffusion_configs = {
+    "debugmodel": ModelArgs(dim=256, n_layers=8, n_heads=16, rope_theta=500000),
 }
