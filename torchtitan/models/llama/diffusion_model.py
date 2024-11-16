@@ -89,6 +89,10 @@ class DiffusionTransformer(nn.Module):
         self.vocab_size = model_args.vocab_size
         self.n_layers = model_args.n_layers
 
+        self.input_channels = input_channels
+        self.input_image_size = input_image_size
+        self.patch_size = patch_size
+
         self.x_embedder = PatchEmbed(input_image_size, patch_size, input_channels, model_args.dim, bias=True)
 
         # TODO persistent should be set to false, since this buffer can be recomputed.
@@ -156,6 +160,21 @@ class DiffusionTransformer(nn.Module):
             self.model_args.max_seq_len,
             self.model_args.rope_theta,
         )
+    
+    def unpatchify(self, x):
+        """
+        x: (N, T, patch_size**2 * C)
+        imgs: (N, H, W, C)
+        """
+        c = self.input_channels
+        p = self.x_embedder.patch_size[0]
+        h = w = int(x.shape[1] ** 0.5)
+        assert h * w == x.shape[1]
+
+        x = x.reshape(shape=(x.shape[0], h, w, p, p, c))
+        x = torch.einsum('nhwpqc->nchpwq', x)
+        imgs = x.reshape(shape=(x.shape[0], c, h * p, h * p))
+        return imgs
 
     def forward(self, tokens: torch.Tensor):
         """
@@ -170,18 +189,15 @@ class DiffusionTransformer(nn.Module):
         """
         # passthrough for nonexistent layers, allows easy configuration of pipeline parallel stages
         # h = self.tok_embeddings(tokens) if self.tok_embeddings else tokens
-
-        print("H SHAPE BEFORE TOKENIZATION: ", tokens.shape)
         
         h = self.x_embedder(tokens)
-
-        print("H SHAPE AFTER TOKENIZATION: ", h.shape)
 
         for layer in self.layers.values():
             h = layer(h, self.freqs_cis)
 
         h = self.norm(h) if self.norm else h
         output = self.output(h) if self.output else h
+        output = self.unpatchify(output)
         return output
 
     @classmethod
