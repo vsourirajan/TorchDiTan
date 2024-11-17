@@ -101,21 +101,26 @@ def main(job_config: JobConfig):
     #     dp_rank,
     # )
 
+    class CIFAR10Wrapper(torch.utils.data.Dataset):
+        def __init__(self, dataset):
+            self.dataset = dataset
+        
+        def __len__(self):
+            return len(self.dataset)
+        
+        def __getitem__(self, idx):
+            image, class_idx = self.dataset[idx]
+            return {
+                "input": image,  # Already [C,H,W] from ToTensor()
+                "class_idx": class_idx
+            }
+
     transform = transforms.Compose([
         transforms.ToTensor()
     ])
-
-    train_dataset = torchvision.datasets.CIFAR10(root='./datasets/cifar10', train=True, transform=transform, download=True)
-    test_dataset = torchvision.datasets.CIFAR10(root='./datasets/cifar10', train=False, transform=transform, download=True)
-    # print("Downloaded dataset from torchvision...")
-    train_loader = DataLoader(train_dataset, batch_size=64, shuffle=True)
-    test_loader = DataLoader(test_dataset, batch_size=64, shuffle=False)
-    # print("Made data loader...")
-
-    # for images, labels in train_loader:
-    #     print(images.shape)
-    #     print(labels.shape)
-    #     break
+    base_dataset = torchvision.datasets.CIFAR10(root='./datasets/cifar10', train=True, transform=transform, download=True)
+    dataset = CIFAR10Wrapper(base_dataset)
+    data_loader = DataLoader(dataset, batch_size=64, shuffle=True)
 
     # build model (using meta init)
     model_cls = model_name_to_cls[model_name]
@@ -209,7 +214,7 @@ def main(job_config: JobConfig):
 
     # load initial checkpoint
     checkpoint = CheckpointManager(
-        dataloader=train_loader,
+        dataloader=data_loader,
         model_parts=model_parts,
         optimizers=optimizers.optimizers,
         lr_schedulers=lr_schedulers.schedulers,
@@ -249,9 +254,7 @@ def main(job_config: JobConfig):
             }
             metric_logger.log(metrics, step=step)
 
-    #data_loader is a DPAwareDataLoader
-    #data_iterator = iter(data_loader)
-    data_iterator = iter(train_loader)
+    data_iterator = iter(data_loader)
 
     train_context = utils.get_train_context(
         parallel_dims.loss_parallel_enabled,
@@ -288,23 +291,21 @@ def main(job_config: JobConfig):
             # get batch
             data_load_start = time.perf_counter()
             batch = next(data_iterator) #[B, L] [B, L] for language
-            input_ids, labels = batch
-            print("input ids shape", input_ids.shape, "labels shape", labels.shape)
-            print("input ids device", input_ids.device, "labels device", labels.device)
-            ntokens_since_last_log += labels.numel()
+   
+            ntokens_since_last_log += batch["input"].numel()
             data_loading_times.append(time.perf_counter() - data_load_start)
 
-            input_ids = input_ids.cuda()
-            labels = labels.cuda()
+            batch["input"] = batch["input"].cuda()
+            batch["class_idx"] = batch["class_idx"].cuda()
             optimizers.zero_grad()
 
             # apply context parallelism if cp is enabled
             optional_context_parallel_ctx = (
                 utils.create_context_parallel_ctx(
                     cp_mesh=world_mesh["cp"],
-                    cp_buffers=[input_ids, labels, model.freqs_cis],
+                    cp_buffers=[batch["input"], batch["class_idx"], model.freqs_cis],
                     cp_seq_dims=[1, 1, 0],
-                    cp_no_restore_buffers={input_ids, labels},
+                    cp_no_restore_buffers={batch["input"], batch["class_idx"]},
                 )
                 if parallel_dims.cp_enabled
                 else None
@@ -312,40 +313,39 @@ def main(job_config: JobConfig):
 
             if parallel_dims.pp_enabled:
                 # Pipeline Parallel forward / backward inside step() call
-                is_last_stage = pp_mesh.get_local_rank() == pp_mesh.size() - 1
+                # is_last_stage = pp_mesh.get_local_rank() == pp_mesh.size() - 1
 
-                with train_context(optional_context_parallel_ctx):
-                    if pp_mesh.get_local_rank() == 0:
-                        pp_schedule.step(input_ids)
-                    elif is_last_stage:
-                        losses = []
-                        pp_schedule.step(target=labels, losses=losses)
-                    else:
-                        pp_schedule.step()
+                # with train_context(optional_context_parallel_ctx):
+                #     if pp_mesh.get_local_rank() == 0:
+                #         pp_schedule.step(input_ids)
+                #     elif is_last_stage:
+                #         losses = []
+                #         pp_schedule.step(target=labels, losses=losses)
+                #     else:
+                #         pp_schedule.step()
 
-                # accumulate losses across pipeline microbatches
-                loss = (
-                    torch.mean(torch.stack(losses))
-                    if is_last_stage
-                    else torch.Tensor([-1.0])
-                )
+                # # accumulate losses across pipeline microbatches
+                # loss = (
+                #     torch.mean(torch.stack(losses))
+                #     if is_last_stage
+                #     else torch.Tensor([-1.0])
+                # )
+                raise NotImplementedError("Pipeline parallelism not implemented for DiT")
             else:
                 # Non-PP forward / backward
                 with train_context(optional_context_parallel_ctx):
                     #print(input_ids)
                     #print(input_ids.shape)
 
-                    x1 = input_ids
+                    x1 = batch["input"]
                     x0 = torch.randn_like(x1).to(x1.device)
-                    print("x0 shape: ", x0.shape)
                     
                     bs = x1.shape[0]
-                    t = torch.randn(bs, device=x1.device)
-                    print("t shape: ", t.shape)
+                    t = torch.rand(bs, device=x1.device)
+                    batch["time"] = t
 
                     xt = x0 + t.view(-1, 1, 1, 1) * (x1 - x0)
-                    print("xt shape: ", xt.shape)
-                    
+                
                     pred = model(xt) #b, c, h, w
 
                     loss = torch.nn.functional.mse_loss(pred, x1 - x0)
