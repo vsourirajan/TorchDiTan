@@ -342,11 +342,11 @@ def main(job_config: JobConfig):
                     
                     bs = x1.shape[0]
                     t = torch.rand(bs, device=x1.device)
-                    batch["time"] = t #[B,] integer
+                    batch["time"] = t
 
                     xt = x0 + t.view(-1, 1, 1, 1) * (x1 - x0)
                 
-                    pred = model(xt) #b, c, h, w
+                    pred = model(batch) #b, c, h, w
 
                     loss = torch.nn.functional.mse_loss(pred, x1 - x0)
                     # pred.shape=(bs, seq_len, vocab_size)
