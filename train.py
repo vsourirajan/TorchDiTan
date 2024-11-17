@@ -111,7 +111,7 @@ def main(job_config: JobConfig):
         def __getitem__(self, idx):
             image, class_idx = self.dataset[idx]
             return {
-                "input": image,  # Already [C,H,W] from ToTensor()
+                "original_input": image,  # Already [C,H,W] from ToTensor()
                 "class_idx": class_idx
             }
 
@@ -292,10 +292,10 @@ def main(job_config: JobConfig):
             data_load_start = time.perf_counter()
             batch = next(data_iterator) #[B, L] [B, L] for language
    
-            ntokens_since_last_log += batch["input"].numel()
+            ntokens_since_last_log += batch["original_input"].numel()
             data_loading_times.append(time.perf_counter() - data_load_start)
 
-            batch["input"] = batch["input"].cuda()
+            batch["original_input"] = batch["original_input"].cuda()
             batch["class_idx"] = batch["class_idx"].cuda()
             optimizers.zero_grad()
 
@@ -303,9 +303,9 @@ def main(job_config: JobConfig):
             optional_context_parallel_ctx = (
                 utils.create_context_parallel_ctx(
                     cp_mesh=world_mesh["cp"],
-                    cp_buffers=[batch["input"], batch["class_idx"], model.freqs_cis],
+                    cp_buffers=[batch["original_input"], batch["class_idx"], model.freqs_cis],
                     cp_seq_dims=[1, 1, 0],
-                    cp_no_restore_buffers={batch["input"], batch["class_idx"]},
+                    cp_no_restore_buffers={batch["original_input"], batch["class_idx"]},
                 )
                 if parallel_dims.cp_enabled
                 else None
@@ -337,7 +337,7 @@ def main(job_config: JobConfig):
                     #print(input_ids)
                     #print(input_ids.shape)
 
-                    x1 = batch["input"]
+                    x1 = batch["original_input"]
                     x0 = torch.randn_like(x1).to(x1.device)
                     
                     bs = x1.shape[0]
@@ -345,6 +345,7 @@ def main(job_config: JobConfig):
                     batch["time"] = t
 
                     xt = x0 + t.view(-1, 1, 1, 1) * (x1 - x0)
+                    batch["input"] = xt
                 
                     pred = model(batch) #b, c, h, w
 
