@@ -16,3 +16,20 @@ Alper's notes on dataloading:
 
 Alper backburner:
 - Maybe properly initialize weights of the patch emebdder?
+
+Alper todo:
+- make new dataloader to produce (partially noisy image x_t scalar t), x1-x0 direction
+{
+    original_image: (partially noisy image, t)
+}
+- modify training loop
+
+Vaibhav todo:
+- change model architecture to accept partially noisy image, scalar t  --> direction (same shape as noisy image)
+    - dimensions (bs, num_patches + t_dim, embed_dim) --> (bs, num_patches + t, embed_dim) --> (cut off ts before depatchify)
+    - implement sinusoidal positional encoding to project float t into embed_dim and concat
+    - condition on class by concatting learnable vector that projects class to embed_dim
+
+Shreya todo:
+- make slides
+- remove upper triangular attention mask
