@@ -342,7 +342,7 @@ def main(job_config: JobConfig):
                     
                     bs = x1.shape[0]
                     t = torch.rand(bs, device=x1.device)
-                    batch["time"] = t
+                    batch["time"] = t #[B,] integer
 
                     xt = x0 + t.view(-1, 1, 1, 1) * (x1 - x0)
                 
