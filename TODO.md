@@ -19,8 +19,12 @@ Alper backburner:
 
 Alper todo:
 - make new dataloader to produce (partially noisy image x_t scalar t), x1-x0 direction
+
+data_entries
 {
-    original_image: (partially noisy image, t)
+    "input":Tensor[B, C, H, W], (float)
+    "class": Tensor[B, ] (integer)
+    "time" Tensor[B, ] (float)
 }
 - modify training loop
 
