@@ -153,7 +153,8 @@ class DiffusionTransformer(nn.Module):
                  model_args: ModelArgs,
                  patch_size: Tuple[int, int] = (2, 2),
                  input_channels: int = 3,
-                 input_image_size: Tuple[int, int] = (32, 32)):
+                 input_image_size: Tuple[int, int] = (32, 32),
+                 num_classes: int = 10):
         super().__init__()
         self.model_args = model_args
         self.vocab_size = model_args.vocab_size
@@ -162,9 +163,10 @@ class DiffusionTransformer(nn.Module):
         self.input_channels = input_channels
         self.input_image_size = input_image_size
         self.patch_size = patch_size
+        self.num_classes = num_classes
 
         self.x_embedder = PatchEmbed(input_image_size, patch_size, input_channels, model_args.dim, bias=True)
-        self.y_embedder = LabelEmbedder(10, model_args.dim, 0)
+        self.y_embedder = LabelEmbedder(num_classes, model_args.dim, 0)
         self.t_embedder = TimestepEmbedder(model_args.dim)
 
         # TODO persistent should be set to false, since this buffer can be recomputed.
@@ -294,6 +296,7 @@ class DiffusionTransformer(nn.Module):
 
         h = self.norm(h) if self.norm else h
         output = self.output(h) if self.output else h
+
         #cut off last 2 dimensions to get (B, num_patches, dim) tensor back
         output = output[:, :-2, :]
         output = self.unpatchify(output)

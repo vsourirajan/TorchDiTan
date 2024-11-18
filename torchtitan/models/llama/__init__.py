@@ -62,4 +62,5 @@ llama3_configs = {
 
 llama3_diffusion_configs = {
     "debugmodel": ModelArgs(dim=256, n_layers=8, n_heads=16, rope_theta=500000),
+    "llama3_diffusion_small": ModelArgs(dim=256, n_layers=16, n_heads=16, rope_theta=500000),
 }

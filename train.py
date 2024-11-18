@@ -30,8 +30,9 @@ from torchtitan.parallelisms import (
 from torchtitan.profiling import maybe_enable_memory_snapshot, maybe_enable_profiling
 
 import torchvision
-from torch.utils.data import DataLoader
+from torch.utils.data import DataLoader, IterableDataset
 import torchvision.transforms as transforms
+from torchtitan.visualization import rf_sample_euler
 
 # Enable debug tracing on failure: https://pytorch.org/docs/stable/elastic/errors.html
 @record
@@ -101,18 +102,28 @@ def main(job_config: JobConfig):
     #     dp_rank,
     # )
 
-    class CIFAR10Wrapper(torch.utils.data.Dataset):
+    class CIFAR10Wrapper(IterableDataset):
+        classes = ['airplane', 'automobile', 'bird', 'cat', 'deer',
+                   'dog', 'frog', 'horse', 'ship', 'truck']
+        
         def __init__(self, dataset):
             self.dataset = dataset
+            self.current_idx = 0
         
         def __len__(self):
             return len(self.dataset)
         
-        def __getitem__(self, idx):
-            image, class_idx = self.dataset[idx]
+        def __iter__(self):
+            return self
+        
+        def __next__(self):
+            item = self.dataset[self.current_idx % len(self.dataset)]
+            image, class_idx = item
+            self.current_idx += 1
             return {
                 "original_input": image,  # Already [C,H,W] from ToTensor()
-                "class_idx": class_idx
+                "class_idx": class_idx,
+                "class_name": self.classes[class_idx]
             }
 
     transform = transforms.Compose([
@@ -120,7 +131,7 @@ def main(job_config: JobConfig):
     ])
     base_dataset = torchvision.datasets.CIFAR10(root='./datasets/cifar10', train=True, transform=transform, download=True)
     dataset = CIFAR10Wrapper(base_dataset)
-    data_loader = DataLoader(dataset, batch_size=64, shuffle=True)
+    data_loader = DataLoader(dataset, batch_size=job_config.training.batch_size, num_workers=16, pin_memory=True)
 
     # build model (using meta init)
     model_cls = model_name_to_cls[model_name]
@@ -346,7 +357,7 @@ def main(job_config: JobConfig):
 
                     xt = x0 + t.view(-1, 1, 1, 1) * (x1 - x0)
                     batch["input"] = xt
-                
+
                     pred = model(batch) #b, c, h, w
 
                     loss = torch.nn.functional.mse_loss(pred, x1 - x0)
@@ -374,6 +385,9 @@ def main(job_config: JobConfig):
             float8_handler.precompute_float8_dynamic_scale_for_fsdp(model_parts)
 
             losses_since_last_log.append(loss)
+
+            if train_state.step % job_config.metrics.sample_freq == 0:
+                rf_sample_euler(model, 50, job_config.training.batch_size, device="cuda", classes=CIFAR10Wrapper.classes)
 
             # log metrics
             if (
