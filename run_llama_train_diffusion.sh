@@ -12,7 +12,7 @@ set -ex
 # LOG_RANK=0,1 NGPU=4 ./run_llama_train.sh
 NGPU=${NGPU:-"1"}
 LOG_RANK=${LOG_RANK:-0}
-CONFIG_FILE=${CONFIG_FILE:-"./train_configs/debug_model_diffusion.toml"}
+CONFIG_FILE=${CONFIG_FILE:-"./train_configs/llama3_diffusion.toml"}
 
 overrides=""
 if [ $# -ne 0 ]; then
