@@ -154,7 +154,9 @@ class DiffusionTransformer(nn.Module):
                  patch_size: Tuple[int, int] = (2, 2),
                  input_channels: int = 3,
                  input_image_size: Tuple[int, int] = (32, 32),
-                 num_classes: int = 10):
+                 num_classes: int = 10,
+                 label_dropout_prob: float = 0.05,
+                 ):
         super().__init__()
         self.model_args = model_args
         self.vocab_size = model_args.vocab_size
@@ -166,7 +168,7 @@ class DiffusionTransformer(nn.Module):
         self.num_classes = num_classes
 
         self.x_embedder = PatchEmbed(input_image_size, patch_size, input_channels, model_args.dim, bias=True)
-        self.y_embedder = LabelEmbedder(num_classes, model_args.dim, 0)
+        self.y_embedder = LabelEmbedder(num_classes, model_args.dim, dropout_prob=label_dropout_prob)
         self.t_embedder = TimestepEmbedder(model_args.dim)
 
         # TODO persistent should be set to false, since this buffer can be recomputed.
@@ -288,7 +290,8 @@ class DiffusionTransformer(nn.Module):
         t_embedding = self.t_embedder(time)
         h = torch.cat([h, t_embedding.unsqueeze(1)], dim=1) # B, num_patches + 1, dim
 
-        y_embedding = self.y_embedder(class_idx, True)
+        force_drop_ids = data_entries.get("force_drop_ids", None)
+        y_embedding = self.y_embedder(class_idx, True, force_drop_ids)
         h = torch.cat([h, y_embedding.unsqueeze(1)], dim=1) # B, num_patches + 2, dim
 
         for layer in self.layers.values():

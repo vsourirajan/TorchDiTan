@@ -15,6 +15,7 @@ save_memory_snapshot_folder = "memory_snapshot"
 [metrics]
 log_freq = 1
 sample_freq = 50
+sample_batch_size = 32
 enable_color_printing = true
 enable_tensorboard = true
 save_tb_folder = "tb"
@@ -31,7 +32,7 @@ name = "AdamW"
 lr = 8e-4
 
 [training]
-batch_size = 256
+batch_size = 64
 seq_len = 258
 warmup_steps = 2  # lr scheduler warm up, normally 20% of the train steps
 max_norm = 1.0  # grad norm clipping
@@ -39,7 +40,7 @@ steps = 1000000
 data_parallel_replicate_degree = 1
 data_parallel_shard_degree = -1
 tensor_parallel_degree = 1
-compile = true
+compile = false
 dataset = "c4_test"  # supported datasets: c4_test (2K), c4 (177M)
 
 [experimental]
