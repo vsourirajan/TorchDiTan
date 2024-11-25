@@ -29,10 +29,8 @@ from torchtitan.parallelisms import (
 
 from torchtitan.profiling import maybe_enable_memory_snapshot, maybe_enable_profiling
 
-import torchvision
-from torch.utils.data import DataLoader, IterableDataset, DistributedSampler
-import torchvision.transforms as transforms
 from torchtitan.samplers import rf_sample_euler, rf_sample_euler_cfg
+from data.data_loader import get_cifar10_dataloader
 
 # Enable debug tracing on failure: https://pytorch.org/docs/stable/elastic/errors.html
 @record
@@ -101,39 +99,8 @@ def main(job_config: JobConfig):
     #     dp_degree,
     #     dp_rank,
     # )
-
-    class CIFAR10Wrapper(torch.utils.data.Dataset):
-        classes = ['airplane', 'automobile', 'bird', 'cat', 'deer',
-                   'dog', 'frog', 'horse', 'ship', 'truck']
-        
-        def __init__(self, dataset):
-            self.dataset = dataset
-        
-        def __len__(self):
-            return len(self.dataset)
-        
-        def __getitem__(self, idx):
-            image, class_idx = self.dataset[idx]
-            return {
-                "original_input": image,  # Already [C,H,W] from ToTensor()
-                "class_idx": class_idx,
-                "class_name": self.classes[class_idx]
-            }
-
-    transform = transforms.Compose([
-        transforms.ToTensor(),
-        transforms.Normalize(mean=[0.5, 0.5, 0.5], 
-                           std=[0.5, 0.5, 0.5])
-    ])
-    base_dataset = torchvision.datasets.CIFAR10(root='./datasets/cifar10', train=True, transform=transform, download=True)
-    dataset = CIFAR10Wrapper(base_dataset)
-    sampler = DistributedSampler(dataset)
-    batch_size_per_gpu = job_config.training.batch_size // world_size
-    data_loader = DataLoader(dataset, 
-                             batch_size=batch_size_per_gpu, 
-                             num_workers=16, 
-                             pin_memory=True,
-                             sampler=sampler)
+    
+    data_loader, sampler = get_cifar10_dataloader(job_config, world_size)
 
     # build model (using meta init)
     model_cls = model_name_to_cls[model_name]
