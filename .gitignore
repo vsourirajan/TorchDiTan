@@ -8,7 +8,7 @@ dist/*
 datasets
 
 # data
-data
+data/cifar10
 out
 wandb
 
