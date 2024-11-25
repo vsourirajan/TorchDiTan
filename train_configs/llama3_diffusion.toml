@@ -14,8 +14,8 @@ save_memory_snapshot_folder = "memory_snapshot"
 
 [metrics]
 log_freq = 1
-sample_freq = 50
-sample_batch_size = 32
+sample_freq = 1
+sample_batch_size = 16
 enable_color_printing = true
 enable_tensorboard = true
 save_tb_folder = "tb"

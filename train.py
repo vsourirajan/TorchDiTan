@@ -32,7 +32,7 @@ from torchtitan.profiling import maybe_enable_memory_snapshot, maybe_enable_prof
 import torchvision
 from torch.utils.data import DataLoader, IterableDataset
 import torchvision.transforms as transforms
-from torchtitan.samplers import rf_sample_euler, rf_sample_euler_cfg_comparison
+from torchtitan.samplers import rf_sample_euler, rf_sample_euler_cfg
 
 # Enable debug tracing on failure: https://pytorch.org/docs/stable/elastic/errors.html
 @record
@@ -389,7 +389,7 @@ def main(job_config: JobConfig):
             losses_since_last_log.append(loss)
 
             if train_state.step % job_config.metrics.sample_freq == 0:
-                rf_sample_euler_cfg_comparison(model, N=50, batch_size=job_config.metrics.sample_batch_size, device="cuda", classes=CIFAR10Wrapper.classes)
+                rf_sample_euler_cfg(model, N=50, batch_size=job_config.metrics.sample_batch_size, device="cuda", classes=CIFAR10Wrapper.classes)
 
             # log metrics
             if (

@@ -71,7 +71,7 @@ def rf_sample_euler(model: torch.nn.Module,
 
 
 @torch.no_grad()
-def rf_sample_euler_cfg_comparison(model: torch.nn.Module, 
+def rf_sample_euler_cfg(model: torch.nn.Module, 
                     N: int = 100, 
                     batch_size: int = 16, 
                     device: str = "cuda",
@@ -79,7 +79,6 @@ def rf_sample_euler_cfg_comparison(model: torch.nn.Module,
                     cfg_scales: List[float] = [2.0],
                     ):
 
-    print("sampling with CFG comparison...")
     # create a dummy batch
     class_indices = torch.randint(0, model.num_classes, (batch_size,), device=device)
     batch = {
@@ -131,10 +130,11 @@ def rf_sample_euler_cfg_comparison(model: torch.nn.Module,
     
     # Limit to first 64 images and create 8x8 grid
     num_images = min(64, batch_size)
-    rows, cols = 8, 8
+    cols = batch_size // 8
+    rows = batch_size // cols
     
     # Create figure with subplots
-    fig, axes = plt.subplots(rows, cols, figsize=(40, 20))  # Doubled width
+    fig, axes = plt.subplots(rows, cols, figsize=(cols * 3 * len(cfg_scales), rows * 3))  # Scale width by number of cfg_scales
     
     # Convert tensor to numpy for plotting
     images = out[:num_images].numpy()
