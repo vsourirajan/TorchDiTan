@@ -239,7 +239,7 @@ class JobConfig:
         self.parser.add_argument(
             "--training.data_parallel_shard_degree",
             type=int,
-            default=-1,
+            default=2,
             help="""
             The `data_parallel_shard_degree` argument specifies the degree of data
             parallelism for weight sharding. When this value is greater than 1, weights
@@ -339,7 +339,7 @@ class JobConfig:
         self.parser.add_argument(
             "--training.mixed_precision_param",
             type=str,
-            default="bfloat16",
+            default="float32",
             choices=["bfloat16", "float32"],
             help="""
                 torch dtype to use for parameters when applying mixed precision via FSDP.

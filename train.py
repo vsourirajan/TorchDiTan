@@ -30,7 +30,7 @@ from torchtitan.parallelisms import (
 from torchtitan.profiling import maybe_enable_memory_snapshot, maybe_enable_profiling
 
 import torchvision
-from torch.utils.data import DataLoader, IterableDataset
+from torch.utils.data import DataLoader, IterableDataset, DistributedSampler
 import torchvision.transforms as transforms
 from torchtitan.visualization import rf_sample_euler
 
@@ -102,24 +102,18 @@ def main(job_config: JobConfig):
     #     dp_rank,
     # )
 
-    class CIFAR10Wrapper(IterableDataset):
+    class CIFAR10Wrapper(torch.utils.data.Dataset):
         classes = ['airplane', 'automobile', 'bird', 'cat', 'deer',
                    'dog', 'frog', 'horse', 'ship', 'truck']
         
         def __init__(self, dataset):
             self.dataset = dataset
-            self.current_idx = 0
         
         def __len__(self):
             return len(self.dataset)
         
-        def __iter__(self):
-            return self
-        
-        def __next__(self):
-            item = self.dataset[self.current_idx % len(self.dataset)]
-            image, class_idx = item
-            self.current_idx += 1
+        def __getitem__(self, idx):
+            image, class_idx = self.dataset[idx]
             return {
                 "original_input": image,  # Already [C,H,W] from ToTensor()
                 "class_idx": class_idx,
@@ -131,7 +125,13 @@ def main(job_config: JobConfig):
     ])
     base_dataset = torchvision.datasets.CIFAR10(root='./datasets/cifar10', train=True, transform=transform, download=True)
     dataset = CIFAR10Wrapper(base_dataset)
-    data_loader = DataLoader(dataset, batch_size=job_config.training.batch_size, num_workers=16, pin_memory=True)
+    sampler = DistributedSampler(dataset)
+    batch_size_per_gpu = job_config.training.batch_size // world_size
+    data_loader = DataLoader(dataset, 
+                             batch_size=batch_size_per_gpu, 
+                             num_workers=16, 
+                             pin_memory=True,
+                             sampler=sampler)
 
     # build model (using meta init)
     model_cls = model_name_to_cls[model_name]
@@ -265,6 +265,7 @@ def main(job_config: JobConfig):
             }
             metric_logger.log(metrics, step=step)
 
+    sampler.set_epoch(train_state.step)
     data_iterator = iter(data_loader)
 
     train_context = utils.get_train_context(
@@ -308,6 +309,10 @@ def main(job_config: JobConfig):
 
             batch["original_input"] = batch["original_input"].cuda()
             batch["class_idx"] = batch["class_idx"].cuda()
+
+            param_dtype = torch.bfloat16 if job_config.training.mixed_precision_param == "bfloat16" else torch.float32
+            batch["original_input"] = batch["original_input"].to(dtype=param_dtype)
+
             optimizers.zero_grad()
 
             # apply context parallelism if cp is enabled
@@ -352,10 +357,11 @@ def main(job_config: JobConfig):
                     x0 = torch.randn_like(x1).to(x1.device)
                     
                     bs = x1.shape[0]
-                    t = torch.rand(bs, device=x1.device)
+                    t = torch.rand(bs, device=x1.device, dtype=param_dtype)
                     batch["time"] = t
 
                     xt = x0 + t.view(-1, 1, 1, 1) * (x1 - x0)
+                    xt = xt.to(dtype=param_dtype)
                     batch["input"] = xt
 
                     pred = model(batch) #b, c, h, w
