@@ -339,7 +339,7 @@ class JobConfig:
         self.parser.add_argument(
             "--training.mixed_precision_param",
             type=str,
-            default="float32",
+            default="bfloat16",
             choices=["bfloat16", "float32"],
             help="""
                 torch dtype to use for parameters when applying mixed precision via FSDP.

@@ -75,28 +75,30 @@ class TimestepEmbedder(nn.Module):
         self.frequency_embedding_size = frequency_embedding_size
 
     @staticmethod
-    def timestep_embedding(t, dim, max_period=10000):
+    def timestep_embedding(t, dim, param_dtype, max_period=10000):
         """
         Create sinusoidal timestep embeddings.
         :param t: a 1-D Tensor of N indices, one per batch element.
                           These may be fractional.
         :param dim: the dimension of the output.
-        :param max_period: controls the minimum frequency of the embeddings.
+        :param param_dtype: the dtype of the parameters.
         :return: an (N, D) Tensor of positional embeddings.
         """
         # https://github.com/openai/glide-text2im/blob/main/glide_text2im/nn.py
+        print("PARAM DTYPE 2: ", param_dtype)
         half = dim // 2
         freqs = torch.exp(
-            -math.log(max_period) * torch.arange(start=0, end=half, dtype=torch.float32) / half
+            -math.log(max_period) * torch.arange(start=0, end=half, dtype=param_dtype) / half
         ).to(device=t.device)
-        args = t[:, None].float() * freqs[None]
+        args = t[:, None].to(param_dtype) * freqs[None]
         embedding = torch.cat([torch.cos(args), torch.sin(args)], dim=-1)
         if dim % 2:
             embedding = torch.cat([embedding, torch.zeros_like(embedding[:, :1])], dim=-1)
         return embedding
 
-    def forward(self, t):
-        t_freq = self.timestep_embedding(t, self.frequency_embedding_size)
+    def forward(self, t, param_dtype):
+        print("PARAM DTYPE 1: ", param_dtype)
+        t_freq = self.timestep_embedding(t, self.frequency_embedding_size, torch.bfloat16)
         t_emb = self.mlp(t_freq)
         return t_emb
 
@@ -275,19 +277,22 @@ class DiffusionTransformer(nn.Module):
             "input":Tensor[B, C, H, W], (float)
             "class": Tensor[B, ] (integer)
             "time" Tensor[B, ] (float)
+            "param_dtype": torch.dtype
         }
         '''
         
         input = data_entries["input"]
         class_idx = data_entries["class_idx"]
         time = data_entries["time"]
+        param_dtype = data_entries["param_dtype"]
 
-        h = self.x_embedder(input) # B, num_patches, dim
+        h = self.x_embedder(input).to(param_dtype) # B, num_patches, dim
         
         embed_dim = h.shape[-1]
 
         #integrate the timestep and class embedding into the input embedding, concatting on patches dimension
-        t_embedding = self.t_embedder(time)
+        print("[LOG] Param dtype: ", param_dtype)
+        t_embedding = self.t_embedder(time, param_dtype).to(param_dtype)
         h = torch.cat([h, t_embedding.unsqueeze(1)], dim=1) # B, num_patches + 1, dim
 
         force_drop_ids = data_entries.get("force_drop_ids", None)

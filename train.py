@@ -281,6 +281,7 @@ def main(job_config: JobConfig):
 
             param_dtype = torch.bfloat16 if job_config.training.mixed_precision_param == "bfloat16" else torch.float32
             batch["original_input"] = batch["original_input"].to(dtype=param_dtype)
+            batch["param_dtype"] = param_dtype
 
             optimizers.zero_grad()
 
