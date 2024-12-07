@@ -47,6 +47,7 @@ ABLATE:
 - model size (various sizes, vary depth vs width while keeping size constant)
 - patch size
 - batch size (?)
+- compile
 
 TRACK:
 - mfu
