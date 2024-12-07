@@ -221,8 +221,6 @@ def main(job_config: JobConfig):
         job_config=job_config,
     )
 
-
-
     if job_config.checkpoint.create_seed_checkpoint:
         assert (
             world_size == 1
@@ -267,6 +265,8 @@ def main(job_config: JobConfig):
     data_loading_times = []
     time_last_log = time.perf_counter()
     gpu_memory_monitor.reset_peak_stats()
+    steps_since_last_log = 0
+
 
     checkpoint.reset()
 
@@ -293,6 +293,7 @@ def main(job_config: JobConfig):
             batch = next(data_iterator) #[B, L] [B, L] for language
    
             ntokens_since_last_log += batch["original_input"].numel()
+            steps_since_last_log += 1
             data_loading_times.append(time.perf_counter() - data_load_start)
 
             batch["original_input"] = batch["original_input"].cuda()
@@ -412,6 +413,7 @@ def main(job_config: JobConfig):
                 wps = ntokens_since_last_log / (
                     time_delta * parallel_dims.non_data_parallel_size
                 )
+                its = steps_since_last_log / time_delta
                 # model FLOPS utilization
                 # For its definition and calculation, please refer to the PaLM paper:
                 # https://arxiv.org/abs/2204.02311
@@ -447,6 +449,7 @@ def main(job_config: JobConfig):
                     f"({gpu_mem_stats.max_reserved_pct:.2f}%)  "
                     f"{color.blue}wps: {round(wps):,}  "
                     f"{color.magenta}mfu: {mfu:.2f}%{color.reset}"
+                    f"{color.red} it/s: {its:.2f}{color.reset}"
                 )
 
                 losses_since_last_log.clear()
@@ -454,6 +457,7 @@ def main(job_config: JobConfig):
                 data_loading_times.clear()
                 time_last_log = time.perf_counter()
                 gpu_memory_monitor.reset_peak_stats()
+                steps_since_last_log = 0
 
             checkpoint.save(
                 train_state.step, force=(train_state.step == job_config.training.steps)
