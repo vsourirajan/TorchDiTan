@@ -265,11 +265,13 @@ def main(job_config: JobConfig):
 
     # variables used to keep info for metrics logging
     losses_since_last_log = []
+    nimages_since_last_log = 0
     ntokens_since_last_log = 0
+    steps_since_last_log = 0
+
     data_loading_times = []
     time_last_log = time.perf_counter()
     gpu_memory_monitor.reset_peak_stats()
-    steps_since_last_log = 0
 
 
     checkpoint.reset()
@@ -297,7 +299,8 @@ def main(job_config: JobConfig):
             batch = next(data_iterator) #[B, L] [B, L] for language
 
    
-            ntokens_since_last_log += batch["original_input"].numel()
+            ntokens_since_last_log += job_config.training.seq_len
+            nimages_since_last_log += job_config.training.batch_size
             steps_since_last_log += 1
             data_loading_times.append(time.perf_counter() - data_load_start)
 
@@ -404,14 +407,16 @@ def main(job_config: JobConfig):
                         utils.dist_mean(avg_loss, dp_mesh),
                         utils.dist_max(max_loss, dp_mesh),
                     )
+                    global_nimages_since_last_log = nimages_since_last_log * dp_degree
                 else:
                     global_avg_loss, global_max_loss = avg_loss, max_loss
+                    global_nimages_since_last_log = nimages_since_last_log
 
                 # update train state
                 train_state.log_steps.append(train_state.step)
                 train_state.global_avg_losses.append(global_avg_loss)
                 train_state.global_max_losses.append(global_max_loss)
-
+                
                 time_delta = time.perf_counter() - time_last_log
 
                 # tokens per second, abbr. as wps by convention
@@ -419,6 +424,7 @@ def main(job_config: JobConfig):
                     time_delta * parallel_dims.non_data_parallel_size
                 )
                 its = steps_since_last_log / time_delta
+                images_per_sec = global_nimages_since_last_log / time_delta
                 # model FLOPS utilization
                 # For its definition and calculation, please refer to the PaLM paper:
                 # https://arxiv.org/abs/2204.02311
@@ -434,6 +440,7 @@ def main(job_config: JobConfig):
                     "loss_metrics/global_avg_loss": global_avg_loss,
                     "loss_metrics/global_max_loss": global_max_loss,
                     "wps": wps,
+                    "im/s": images_per_sec,
                     "mfu(%)": mfu,
                     "time_metrics/end_to_end(s)": time_end_to_end,
                     "time_metrics/data_loading(s)": time_data_loading,
@@ -455,6 +462,7 @@ def main(job_config: JobConfig):
                     f"{color.blue}wps: {round(wps):,}  "
                     f"{color.magenta}mfu: {mfu:.2f}%{color.reset}"
                     f"{color.red} it/s: {its:.2f}{color.reset}"
+                    f"{color.red} im/s: {images_per_sec:.2f}{color.reset}"
                 )
 
                 losses_since_last_log.clear()
@@ -463,6 +471,7 @@ def main(job_config: JobConfig):
                 time_last_log = time.perf_counter()
                 gpu_memory_monitor.reset_peak_stats()
                 steps_since_last_log = 0
+                nimages_since_last_log = 0
 
             checkpoint.save(
                 train_state.step, force=(train_state.step == job_config.training.steps)
