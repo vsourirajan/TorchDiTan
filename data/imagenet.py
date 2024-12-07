@@ -64,7 +64,8 @@ def get_imagenet_dataloader(
     split: str = 'train',
     batch_size: int = 32,
     num_workers: int = 4,
-    transform: Optional[Callable] = None
+    image_size: int = 256,
+    transform: Optional[Callable] = None,
 ) -> DataLoader:
     """
     Creates a DataLoader for ImageNet dataset using torchvision's ImageNet.
@@ -82,6 +83,8 @@ def get_imagenet_dataloader(
     # Default ImageNet normalization if no transform is provided
     if transform is None:
         transform = transforms.Compose([
+            transforms.Resize(image_size),
+            transforms.CenterCrop(image_size),
             transforms.ToTensor(),
             transforms.Normalize(mean=[0.485, 0.456, 0.406], 
                                std=[0.229, 0.224, 0.225])
@@ -107,6 +110,8 @@ if __name__ == "__main__":
     
     # Example custom transform
     custom_transform = transforms.Compose([
+        transforms.Resize(256),
+        transforms.CenterCrop(256),
         transforms.ToTensor(),
         transforms.Normalize(mean=[0.5, 0.5, 0.5], 
                            std=[0.5, 0.5, 0.5])
