@@ -28,6 +28,27 @@ from torchtitan.models.llama.model import (
 from einops.layers.torch import Rearrange
 import math
 
+
+@dataclass
+class DiffusionModelArgs:
+    dim: int = 4096
+    n_layers: int = 32
+    n_heads: int = 32
+    n_kv_heads: Optional[int] = None
+    vocab_size: int = -1  # defined later by tokenizer
+    multiple_of: int = 256  # make SwiGLU hidden layer size multiple of large power of 2
+    ffn_dim_multiplier: Optional[float] = None
+    norm_eps: float = 1e-5
+    rope_theta: float = 10000
+
+    max_seq_len: int = 2048
+    # If `True`, then each transformer block init uses its layer ID, and if
+    # `False`, each uses the total number of transformer blocks
+    depth_init: bool = True
+    norm_type: str = "rmsnorm"
+
+    patch_size: int = 2
+
 class PatchEmbed(nn.Module):
     """ 2D Image to Patch Embedding
     """
@@ -149,8 +170,8 @@ class DiffusionTransformer(nn.Module):
     """
 
     def __init__(self, 
-                 model_args: ModelArgs,
-                 patch_size: Tuple[int, int] = (2, 2),
+                 model_args: DiffusionModelArgs,
+                 patch_size: int = 2,
                  input_channels: int = 3,
                  input_image_size: Tuple[int, int] = (32, 32),
                  num_classes: int = 10,
@@ -160,13 +181,14 @@ class DiffusionTransformer(nn.Module):
         self.model_args = model_args
         self.vocab_size = model_args.vocab_size
         self.n_layers = model_args.n_layers
+        self.patch_size = model_args.patch_size
 
         self.input_channels = input_channels
         self.input_image_size = input_image_size
-        self.patch_size = patch_size
+        self.patch_size = model_args.patch_size
         self.num_classes = num_classes
 
-        self.x_embedder = PatchEmbed(input_image_size, patch_size, input_channels, model_args.dim, bias=True)
+        self.x_embedder = PatchEmbed(input_image_size, (patch_size, patch_size), input_channels, model_args.dim, bias=True)
         self.y_embedder = LabelEmbedder(num_classes, model_args.dim, dropout_prob=label_dropout_prob)
         self.t_embedder = TimestepEmbedder(model_args.dim)
 
@@ -187,7 +209,7 @@ class DiffusionTransformer(nn.Module):
             model_args.norm_type, dim=model_args.dim, eps=model_args.norm_eps
         )
 
-        self.output = nn.Linear(model_args.dim, patch_size[0] * patch_size[1] * input_channels, bias=False)
+        self.output = nn.Linear(model_args.dim, patch_size * patch_size * input_channels, bias=False)
         self.init_weights()
 
     def init_weights(

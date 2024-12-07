@@ -8,7 +8,7 @@
 # Copyright (c) Meta Platforms, Inc. All Rights Reserved.
 
 from torchtitan.models.llama.model import ModelArgs, Transformer
-from torchtitan.models.llama.diffusion_model import DiffusionTransformer
+from torchtitan.models.llama.diffusion_model import DiffusionTransformer, DiffusionModelArgs
 
 __all__ = ["Transformer", "DiffusionTransformer"]
 
@@ -61,6 +61,6 @@ llama3_configs = {
 }
 
 llama3_diffusion_configs = {
-    "debugmodel": ModelArgs(dim=256, n_layers=8, n_heads=16, rope_theta=500000),
-    "llama3_diffusion_small": ModelArgs(dim=256, n_layers=16, n_heads=16, rope_theta=500000),
+    "debugmodel": DiffusionModelArgs(dim=256, n_layers=8, n_heads=16, rope_theta=500000, patch_size=2),
+    "llama3_diffusion_small": DiffusionModelArgs(dim=256, n_layers=16, n_heads=16, rope_theta=500000, patch_size=2),
 }

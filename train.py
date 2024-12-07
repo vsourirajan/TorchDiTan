@@ -113,6 +113,19 @@ def main(job_config: JobConfig):
     model_config.vocab_size = tokenizer.n_words
     model_config.max_seq_len = job_config.training.seq_len
 
+    if model_config.max_seq_len == -1:
+        #compute max seq len
+        fixed_timestep_and_label_embedder_size = 2
+        patch_size = model_config.patch_size
+        image_size = (256, 256) #TODO: get from config
+        print("[WARNING] hardcoding image size to 256x256")
+        max_seq_len = (image_size[0] // patch_size) * (image_size[1] // patch_size) + fixed_timestep_and_label_embedder_size
+      
+        model_config.max_seq_len = max_seq_len
+        job_config.training.seq_len = max_seq_len
+        print("[INFO] max_seq_len not specified, manually calculated to be", max_seq_len)
+
+
     logger.info(f"Building {model_name} {job_config.model.flavor} with {model_config}")
     with torch.device("meta"):
         model = model_cls.from_model_args(model_config)
