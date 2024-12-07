@@ -37,3 +37,19 @@ Vaibhav todo:
 Shreya todo:
 - make slides
 - remove upper triangular attention mask
+
+
+
+ABLATE:
+- dtype
+- replicate/shard degree
+- activation checkpointing
+- model size (various sizes, vary depth vs width while keeping size constant)
+- patch size
+- batch size (?)
+
+TRACK:
+- mfu
+- im/s
+- memory
+- time
