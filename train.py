@@ -64,6 +64,7 @@ def main(job_config: JobConfig):
         world_size=world_size,
         enable_loss_parallel=job_config.training.enable_loss_parallel,
     )
+    print("DP SHARD: ", parallel_dims.dp_shard)
     device = torch.device(f"cuda:{int(os.environ['LOCAL_RANK'])}")
     torch.cuda.set_device(device)
     utils.init_distributed(job_config)
@@ -166,6 +167,11 @@ def main(job_config: JobConfig):
     else:
         init_device = "cuda"
         buffer_device = None
+
+    if job_config.training.data_parallel_shard_degree == 1:
+        param_dtype = torch.bfloat16 if job_config.training.mixed_precision_param == "bfloat16" else torch.float32
+        model.to(param_dtype)
+        print("[LOG] manually applied dtype to model")
 
     # apply parallelisms and initialization
     if parallel_dims.pp_enabled:
@@ -347,8 +353,8 @@ def main(job_config: JobConfig):
                     xt = x0 + t.view(-1, 1, 1, 1) * (x1 - x0)
                     xt = xt.to(dtype=param_dtype)
                     batch["input"] = xt
-
-                    model.to(param_dtype)
+                    
+                    print("[LOG] model dtype: ", model.x_embedder.proj.weight.dtype)
                     pred = model(batch) #b, c, h, w
 
                     loss = torch.nn.functional.mse_loss(pred, x1 - x0)
@@ -377,8 +383,8 @@ def main(job_config: JobConfig):
 
             losses_since_last_log.append(loss)
 
-            if train_state.step % job_config.metrics.sample_freq == 0:
-                rf_sample_euler_cfg(model, N=50, batch_size=job_config.metrics.sample_batch_size, device="cuda", classes=CIFAR10Wrapper.classes)
+            # if train_state.step % job_config.metrics.sample_freq == 0:
+            #     rf_sample_euler_cfg(model, N=50, batch_size=job_config.metrics.sample_batch_size, device="cuda", classes=CIFAR10Wrapper.classes)
 
             # log metrics
             if (
