@@ -31,6 +31,7 @@ from torchtitan.profiling import maybe_enable_memory_snapshot, maybe_enable_prof
 
 from torchtitan.samplers import rf_sample_euler, rf_sample_euler_cfg
 from data.data_loader import get_cifar10_dataloader
+from data.imagenet import get_imagenet_dataloader
 
 # Enable debug tracing on failure: https://pytorch.org/docs/stable/elastic/errors.html
 @record
@@ -101,7 +102,9 @@ def main(job_config: JobConfig):
     #     dp_rank,
     # )
     
-    data_loader, sampler = get_cifar10_dataloader(job_config, world_size)
+    # data_loader, sampler = get_cifar10_dataloader(job_config, world_size)
+    root_dir = "/local/vondrick/datasets/imagenet"
+    data_loader, sampler = get_imagenet_dataloader(root_dir)
 
     # build model (using meta init)
     model_cls = model_name_to_cls[model_name]
@@ -254,6 +257,7 @@ def main(job_config: JobConfig):
     sampler.set_epoch(train_state.step)
     data_iterator = iter(data_loader)
 
+
     train_context = utils.get_train_context(
         parallel_dims.loss_parallel_enabled,
         job_config.experimental.enable_compiled_autograd,
@@ -291,6 +295,7 @@ def main(job_config: JobConfig):
             # get batch
             data_load_start = time.perf_counter()
             batch = next(data_iterator) #[B, L] [B, L] for language
+
    
             ntokens_since_last_log += batch["original_input"].numel()
             steps_since_last_log += 1
