@@ -280,8 +280,9 @@ def main(job_config: JobConfig):
             batch["class_idx"] = batch["class_idx"].cuda()
 
             param_dtype = torch.bfloat16 if job_config.training.mixed_precision_param == "bfloat16" else torch.float32
+            print("PARAM DTYPE", param_dtype)
             batch["original_input"] = batch["original_input"].to(dtype=param_dtype)
-            batch["param_dtype"] = param_dtype
+            #batch["param_dtype"] = param_dtype
 
             optimizers.zero_grad()
 
@@ -334,6 +335,7 @@ def main(job_config: JobConfig):
                     xt = xt.to(dtype=param_dtype)
                     batch["input"] = xt
 
+                    model.to(param_dtype)
                     pred = model(batch) #b, c, h, w
 
                     loss = torch.nn.functional.mse_loss(pred, x1 - x0)

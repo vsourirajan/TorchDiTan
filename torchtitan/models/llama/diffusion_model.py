@@ -75,30 +75,27 @@ class TimestepEmbedder(nn.Module):
         self.frequency_embedding_size = frequency_embedding_size
 
     @staticmethod
-    def timestep_embedding(t, dim, param_dtype, max_period=10000):
+    def timestep_embedding(t, dim, max_period=10000):
         """
         Create sinusoidal timestep embeddings.
         :param t: a 1-D Tensor of N indices, one per batch element.
                           These may be fractional.
         :param dim: the dimension of the output.
-        :param param_dtype: the dtype of the parameters.
         :return: an (N, D) Tensor of positional embeddings.
         """
         # https://github.com/openai/glide-text2im/blob/main/glide_text2im/nn.py
-        print("PARAM DTYPE 2: ", param_dtype)
         half = dim // 2
         freqs = torch.exp(
-            -math.log(max_period) * torch.arange(start=0, end=half, dtype=param_dtype) / half
+            -math.log(max_period) * torch.arange(start=0, end=half) / half
         ).to(device=t.device)
-        args = t[:, None].to(param_dtype) * freqs[None]
+        args = t[:, None] * freqs[None]
         embedding = torch.cat([torch.cos(args), torch.sin(args)], dim=-1)
         if dim % 2:
             embedding = torch.cat([embedding, torch.zeros_like(embedding[:, :1])], dim=-1)
-        return embedding
+        return embedding.to(dtype=t.dtype)
 
-    def forward(self, t, param_dtype):
-        print("PARAM DTYPE 1: ", param_dtype)
-        t_freq = self.timestep_embedding(t, self.frequency_embedding_size, torch.bfloat16)
+    def forward(self, t):
+        t_freq = self.timestep_embedding(t, self.frequency_embedding_size)
         t_emb = self.mlp(t_freq)
         return t_emb
 
@@ -268,9 +265,6 @@ class DiffusionTransformer(nn.Module):
         # passthrough for nonexistent layers, allows easy configuration of pipeline parallel stages
         # h = self.tok_embeddings(tokens) if self.tok_embeddings else tokens
         
-        #concat 1 t and 1 class
-
-
         '''
         data_entries
         {
@@ -284,15 +278,14 @@ class DiffusionTransformer(nn.Module):
         input = data_entries["input"]
         class_idx = data_entries["class_idx"]
         time = data_entries["time"]
-        param_dtype = data_entries["param_dtype"]
+        #param_dtype = data_entries["param_dtype"]
 
-        h = self.x_embedder(input).to(param_dtype) # B, num_patches, dim
-        
-        embed_dim = h.shape[-1]
+        h = self.x_embedder(input) # B, num_patches, dim
 
         #integrate the timestep and class embedding into the input embedding, concatting on patches dimension
-        print("[LOG] Param dtype: ", param_dtype)
-        t_embedding = self.t_embedder(time, param_dtype).to(param_dtype)
+        # print("[LOG] Param dtype: ", param_dtype)
+        # print("Time dtype: ", time.dtype)
+        t_embedding = self.t_embedder(time)
         h = torch.cat([h, t_embedding.unsqueeze(1)], dim=1) # B, num_patches + 1, dim
 
         force_drop_ids = data_entries.get("force_drop_ids", None)
