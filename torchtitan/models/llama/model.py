@@ -321,7 +321,9 @@ class TransformerBlock(nn.Module):
             torch.Tensor: Output tensor after applying attention and feedforward layers.
 
         """
+        # print("before attention: ", x.shape, freqs_cis.shape)
         h = x + self.attention(self.attention_norm(x), freqs_cis)
+        # print("after attention: ", h.shape)
         out = h + self.feed_forward(self.ffn_norm(h))
         return out
 

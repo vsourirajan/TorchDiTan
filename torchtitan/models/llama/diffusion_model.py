@@ -74,6 +74,11 @@ class PatchEmbed(nn.Module):
 
     def forward(self, x):
         B, C, H, W = x.shape
+        if not (H == self.img_size[0]):
+            print("[WARNING] Input image height ({H}) doesn't match model ({self.img_size[0]}).")
+        if not (W == self.img_size[1]):
+            print("[WARNING] Input image width ({W}) doesn't match model ({self.img_size[1]}).")
+
         assert(H == self.img_size[0], f"Input image height ({H}) doesn't match model ({self.img_size[0]}).")
         assert(W == self.img_size[1], f"Input image width ({W}) doesn't match model ({self.img_size[1]}).")
         x = self.proj(x)
@@ -128,7 +133,9 @@ class LabelEmbedder(nn.Module):
     def __init__(self, num_classes, hidden_size, dropout_prob):
         super().__init__()
         use_cfg_embedding = dropout_prob > 0
+        #print("[LOG] using cfg embedding...")
         self.embedding_table = nn.Embedding(num_classes + use_cfg_embedding, hidden_size)
+        #print("[LOG] embedding table: ", self.embedding_table)
         self.num_classes = num_classes
         self.dropout_prob = dropout_prob
 
@@ -173,8 +180,8 @@ class DiffusionTransformer(nn.Module):
                  model_args: DiffusionModelArgs,
                  patch_size: int = 2,
                  input_channels: int = 3,
-                 input_image_size: Tuple[int, int] = (32, 32),
-                 num_classes: int = 10,
+                 input_image_size: Tuple[int, int] = (256, 256),
+                 num_classes: int = 1000,
                  label_dropout_prob: float = 0.05,
                  ):
         super().__init__()
