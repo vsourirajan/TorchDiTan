@@ -20,6 +20,13 @@ enable_color_printing = true
 enable_tensorboard = true
 save_tb_folder = "tb"
 
+[dataset]
+dataset_name = "imagenet"
+root_dir = "/local/vondrick/datasets/imagenet"
+num_workers = 4
+image_size = [256, 256]
+batch_size = 1
+
 [model]
 name = "llama3_diffusion"
 flavor = "llama3_diffusion_small"

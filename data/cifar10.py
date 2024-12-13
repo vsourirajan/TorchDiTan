@@ -18,22 +18,24 @@ class CIFAR10Wrapper(torch.utils.data.Dataset):
         return {
             "original_input": image,  # Already [C,H,W] from ToTensor()
             "class_idx": class_idx,
-        "class_name": self.classes[class_idx]
+            "class_name": self.classes[class_idx]
         }
 
-def get_cifar10_dataloader(job_config, world_size):
+#root_dir, num_workers, image_size, batch_size
+
+def get_cifar10_dataloader(root_dir, num_workers, image_size, batch_size):
     transform = transforms.Compose([
+        transforms.Resize(image_size),
         transforms.ToTensor(),
         transforms.Normalize(mean=[0.5, 0.5, 0.5], 
                             std=[0.5, 0.5, 0.5])
     ])
-    base_dataset = torchvision.datasets.CIFAR10(root='./data/cifar10', train=True, transform=transform, download=True)
+    base_dataset = torchvision.datasets.CIFAR10(root=root_dir, train=True, transform=transform, download=True)
     dataset = CIFAR10Wrapper(base_dataset)
     sampler = DistributedSampler(dataset)
-    batch_size_per_gpu = job_config.training.batch_size // world_size
     data_loader = DataLoader(dataset, 
-                                batch_size=batch_size_per_gpu, 
-                                num_workers=16, 
+                                batch_size=batch_size, 
+                                num_workers=num_workers, 
                                 pin_memory=True,
                                 sampler=sampler)
     return data_loader, sampler
