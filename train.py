@@ -135,6 +135,8 @@ def main(job_config: JobConfig):
     tokenizer_type = model_name_to_tokenizer[model_name]
     tokenizer = build_tokenizer(tokenizer_type, job_config.model.tokenizer_path)
 
+    if job_config.dataset.batch_size == -1:
+        job_config.dataset.batch_size = job_config.training.batch_size
     data_loader, sampler = build_image_dataloader(job_config.dataset)
 
     # build model (using meta init)
@@ -272,6 +274,7 @@ def main(job_config: JobConfig):
             "All the substages will be initialized with random weights with same RNG state which can affect convergence."
         )
 
+ 
     metric_logger = build_metric_logger(job_config, parallel_dims)
 
     # plot losses loaded from checkpoint (if any) to TensorBoard
@@ -330,7 +333,7 @@ def main(job_config: JobConfig):
             batch = next(data_iterator) #[B, L] [B, L] for language
 
    
-            ntokens_since_last_log += job_config.training.seq_len
+            ntokens_since_last_log += job_config.training.seq_len * job_config.training.batch_size
             nimages_since_last_log += job_config.training.batch_size
             steps_since_last_log += 1
             data_loading_times.append(time.perf_counter() - data_load_start)
@@ -385,6 +388,8 @@ def main(job_config: JobConfig):
 
                     x1 = batch["original_input"]
                     x0 = torch.randn_like(x1).to(x1.device)
+
+                    print("original input min", x1.min(), "max", x1.max())
                     
                     bs = x1.shape[0]
                     t = torch.rand(bs, device=x1.device, dtype=param_dtype)
