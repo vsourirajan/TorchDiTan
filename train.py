@@ -9,6 +9,7 @@ import time
 from datetime import timedelta
 
 import torch
+import wandb
 
 from torch.distributed.elastic.multiprocessing.errors import record
 
@@ -33,12 +34,56 @@ from torchtitan.samplers import rf_sample_euler, rf_sample_euler_cfg
 from data.data_loader import get_cifar10_dataloader
 from data.imagenet import get_imagenet_dataloader
 
+from dataclasses import asdict
+
+def get_config_dict(config: JobConfig) -> dict:
+    """Convert JobConfig object to a flat dictionary for wandb logging"""
+    config_dict = {}
+    
+    # Iterate through all sections of the config
+    for section_name in ['job', 'model', 'training', 'optimizer', 'metrics', 
+                        'profiling', 'checkpoint', 'experimental', 'float8']:
+        if hasattr(config, section_name):
+            section = getattr(config, section_name)
+            # Add all attributes from the section to the flat dict
+            for key, value in vars(section).items():
+                config_dict[f"{section_name}.{key}"] = value
+    
+    return config_dict
+
 # Enable debug tracing on failure: https://pytorch.org/docs/stable/elastic/errors.html
 @record
 def main(job_config: JobConfig):
     init_logger()
-    logger.info(f"Starting job: {job_config.job.description}")
+    
+    # Initialize wandb before distributed init
+    rank = int(os.environ.get("RANK", "0"))
+    local_rank = int(os.environ.get("LOCAL_RANK", "0"))
+    world_size = int(os.environ.get("WORLD_SIZE", "1"))
+    
+    # Print full config at start of training
+    logger.info("=== Configuration ===")
+    for section_name, section in vars(job_config).items():
+        if not section_name.startswith('_'):
+            logger.info(f"\n[{section_name}]")
+            for key, value in vars(section).items():
+                logger.info(f"{key}: {value}")
+    logger.info("==================")
 
+    # Initialize wandb with unique name for each process
+    config_dict = get_config_dict(job_config)
+    wandb.init(
+        project="torchditan",
+        config=config_dict,
+        name=f"rank_{rank}",  # unique name for each process
+        group=job_config.job.description,  # group runs from same job together
+        tags=[f"world_size_{world_size}"],
+    )
+
+
+    breakpoint()
+    logger.info(f"Starting job: {job_config.job.description}")
+    
     # used for colorful printing
     color = utils.Color if job_config.metrics.enable_color_printing else utils.NoColor
 
@@ -503,4 +548,7 @@ if __name__ == "__main__":
     config = JobConfig()
     config.parse_args()
     main(config)
+    
+    # Cleanup wandb at the end
+    wandb.finish()
     torch.distributed.destroy_process_group()
