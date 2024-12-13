@@ -1,6 +1,6 @@
 import os
 import torch
-from torch.utils.data import DataLoader, Dataset
+from torch.utils.data import DataLoader, Dataset, DistributedSampler
 from torchvision import transforms
 from torchvision.datasets import ImageNet
 from typing import Optional, Callable, Dict
@@ -35,7 +35,11 @@ class ImageNetDataset(Dataset):
         return len(self.dataset)
     
     def __getitem__(self, idx):
-        return self.dataset[idx]
+        image, class_idx = self.dataset[idx]
+        return {
+            "original_input": image,  # Image tensor
+            "class_idx": class_idx,  # Class index
+        }
     
     def get_class_name(self, idx: int) -> str:
         """
@@ -62,11 +66,11 @@ class ImageNetDataset(Dataset):
 def get_imagenet_dataloader(
     root_dir: str,
     split: str = 'train',
-    batch_size: int = 32,
+    batch_size: int = 1,
     num_workers: int = 4,
     image_size: int = 256,
     transform: Optional[Callable] = None,
-) -> DataLoader:
+):
     """
     Creates a DataLoader for ImageNet dataset using torchvision's ImageNet.
     
@@ -96,13 +100,17 @@ def get_imagenet_dataloader(
         transform=transform
     )
     
-    return DataLoader(
+    dataloader = DataLoader(
         dataset,
         batch_size=batch_size,
         shuffle=(split == 'train'),
         num_workers=num_workers,
         pin_memory=True
     )
+
+    sampler = DistributedSampler(dataset)
+
+    return dataloader, sampler
 
 if __name__ == "__main__":
     # Set the root directory for ImageNet
@@ -118,14 +126,14 @@ if __name__ == "__main__":
     ])
     
     # Create train and validation dataloaders
-    train_loader = get_imagenet_dataloader(
+    train_loader, _ = get_imagenet_dataloader(
         root_dir=root_dir,
         split='train',
         batch_size=32,
         transform=custom_transform
     )
     
-    val_loader = get_imagenet_dataloader(
+    val_loader, _ = get_imagenet_dataloader(
         root_dir=root_dir,
         split='val',
         batch_size=32,
