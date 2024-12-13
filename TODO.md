@@ -54,3 +54,34 @@ TRACK:
 - im/s
 - memory
 - time
+
+
+
+
+You think training has slowed down? Check this :
+
+IT'S IMPORTANT THAT YOU TURN OFF CAUSAL ATTENTION, WITH CAUSAL ATTENTION, THE ATTENTION LAYERS ARE WAY FASTER
+
+CUDA_VISIBLE_DEVICES=6,7 NGPU=2 ./run_llama_train_diffusion.sh
+
+"llama3_diffusion_small": DiffusionModelArgs(dim=256, n_layers=16, n_heads=16, rope_theta=500000, patch_size=2),
+
+[rank0]:2024-12-13 17:29:23,398 - root - INFO - step: 30  loss:  1.7148  memory: 14.91GiB(18.82%)  wps: 48,655  mfu: 13.87% it/s: 0.37 im/s: 5.94
+
+[dataset]
+batch_size = -1 # get it from training.batch_size
+dataset_name = "imagenet"
+root_dir = "/local/vondrick/datasets/imagenet"
+num_workers = 4
+image_size = [256, 256]
+num_classes = 1000
+
+[model]
+name = "llama3_diffusion"
+flavor = "llama3_diffusion_small"
+
+[training]
+batch_size = 8
+seq_len = 16386
+
+[rank0]:doing attention with h shape:  torch.Size([16, 16386, 256])
