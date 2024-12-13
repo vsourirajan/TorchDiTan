@@ -21,11 +21,11 @@ enable_tensorboard = true
 save_tb_folder = "tb"
 
 [dataset]
+batch_size = -1 # get it from training.batch_size
 dataset_name = "imagenet"
 root_dir = "/local/vondrick/datasets/imagenet"
 num_workers = 4
 image_size = [256, 256]
-batch_size = 1
 
 [model]
 name = "llama3_diffusion"
@@ -39,7 +39,7 @@ name = "AdamW"
 lr = 8e-4
 
 [training]
-batch_size = 64
+batch_size = 4
 seq_len = -1
 warmup_steps = 2  # lr scheduler warm up, normally 20% of the train steps
 max_norm = 1.0  # grad norm clipping
