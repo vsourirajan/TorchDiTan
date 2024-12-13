@@ -63,13 +63,12 @@ class ImageNetDataset(Dataset):
         """
         return self.idx_to_class
 
+
 def get_imagenet_dataloader(
     root_dir: str,
-    split: str = 'train',
-    batch_size: int = 1,
     num_workers: int = 4,
     image_size: int = 256,
-    transform: Optional[Callable] = None,
+    batch_size: int = 1,
 ):
     """
     Creates a DataLoader for ImageNet dataset using torchvision's ImageNet.
@@ -85,25 +84,24 @@ def get_imagenet_dataloader(
         DataLoader: PyTorch DataLoader for ImageNet
     """
     # Default ImageNet normalization if no transform is provided
-    if transform is None:
-        transform = transforms.Compose([
-            transforms.Resize(image_size),
-            transforms.CenterCrop(image_size),
-            transforms.ToTensor(),
-            transforms.Normalize(mean=[0.485, 0.456, 0.406], 
-                               std=[0.229, 0.224, 0.225])
-        ])
-    
+    transform = transforms.Compose([
+        transforms.Resize(image_size),
+        transforms.CenterCrop(image_size),
+        transforms.ToTensor(),
+        transforms.Normalize(mean=[0.485, 0.456, 0.406], 
+                            std=[0.229, 0.224, 0.225])
+    ])
+        
     dataset = ImageNetDataset(
         root=root_dir,
-        split=split,
+        split='train', #hardcoded train split
         transform=transform
     )
     
     dataloader = DataLoader(
         dataset,
         batch_size=batch_size,
-        shuffle=(split == 'train'),
+        shuffle=True, #hardcoded train split
         num_workers=num_workers,
         pin_memory=True
     )

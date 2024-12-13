@@ -30,8 +30,7 @@ from torchtitan.parallelisms import (
 from torchtitan.profiling import maybe_enable_memory_snapshot, maybe_enable_profiling
 
 from torchtitan.samplers import rf_sample_euler, rf_sample_euler_cfg
-from data.data_loader import get_cifar10_dataloader
-from data.imagenet import get_imagenet_dataloader
+from data import build_image_dataloader
 
 # Enable debug tracing on failure: https://pytorch.org/docs/stable/elastic/errors.html
 @record
@@ -91,20 +90,7 @@ def main(job_config: JobConfig):
     tokenizer_type = model_name_to_tokenizer[model_name]
     tokenizer = build_tokenizer(tokenizer_type, job_config.model.tokenizer_path)
 
-    # build dataloader
-    # data_loader = build_hf_data_loader(
-    #     job_config.training.dataset,
-    #     job_config.training.dataset_path,
-    #     tokenizer,
-    #     job_config.training.batch_size,
-    #     job_config.training.seq_len,
-    #     dp_degree,
-    #     dp_rank,
-    # )
-    
-    # data_loader, sampler = get_cifar10_dataloader(job_config, world_size)
-    root_dir = "/local/vondrick/datasets/imagenet"
-    data_loader, sampler = get_imagenet_dataloader(root_dir)
+    data_loader, sampler = build_image_dataloader(job_config.dataset)
 
     # build model (using meta init)
     model_cls = model_name_to_cls[model_name]
@@ -121,8 +107,7 @@ def main(job_config: JobConfig):
         #compute max seq len
         fixed_timestep_and_label_embedder_size = 2
         patch_size = model_config.patch_size
-        image_size = (256, 256) #TODO: get from config
-        print("[WARNING] hardcoding image size to 256x256")
+        image_size = job_config.dataset.image_size
         max_seq_len = (image_size[0] // patch_size) * (image_size[1] // patch_size) + fixed_timestep_and_label_embedder_size
       
         model_config.max_seq_len = max_seq_len
@@ -171,7 +156,8 @@ def main(job_config: JobConfig):
         init_device = "cuda"
         buffer_device = None
 
-    if job_config.training.data_parallel_shard_degree == 1:
+    print("[LOG] DATA PARALLEL SHARD DEGREE", job_config.training.data_parallel_shard_degree, "DATA PARALLEL REPLICATE DEGREE", job_config.training.data_parallel_replicate_degree)
+    if parallel_dims.dp_shard == 1:
         param_dtype = torch.bfloat16 if job_config.training.mixed_precision_param == "bfloat16" else torch.float32
         model.to(param_dtype)
         print("[LOG] manually applied dtype to model")
