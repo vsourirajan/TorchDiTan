@@ -24,8 +24,9 @@ save_tb_folder = "tb"
 batch_size = -1 # get it from training.batch_size
 dataset_name = "imagenet"
 root_dir = "/local/vondrick/datasets/imagenet"
-num_workers = 4
+num_workers = 16
 image_size = [256, 256]
+num_classes = 1000
 
 [model]
 name = "llama3_diffusion"
@@ -36,10 +37,10 @@ tokenizer_path = "./test/assets/test_tiktoken.model"
 
 [optimizer]
 name = "AdamW"
-lr = 8e-4
+lr = 1e-4
 
 [training]
-batch_size = 4
+batch_size = 1
 seq_len = -1
 warmup_steps = 2  # lr scheduler warm up, normally 20% of the train steps
 max_norm = 1.0  # grad norm clipping

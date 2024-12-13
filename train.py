@@ -76,7 +76,6 @@ def main(job_config: JobConfig):
     wandb.init(
         project="torchditan",
         config=config_dict,
-        name=f"rank_{rank}",  # unique name for each process
         group=job_config.job.description,  # group runs from same job together
         tags=[f"world_size_{world_size}"],
     )
@@ -433,8 +432,8 @@ def main(job_config: JobConfig):
             losses_since_last_log.append(loss)
 
             if train_state.step % job_config.metrics.sample_freq == 0:
-                figure = rf_sample_euler_cfg(model, N=50, batch_size=job_config.metrics.sample_batch_size, device="cuda", classes=classes)
-                # wandb.log({f"Generated images -- Step {train_state.step}": wandb.Image(image)})
+                figure = rf_sample_euler_cfg(model, N=50, batch_size=job_config.metrics.sample_batch_size, device="cuda", classes=classes, batch_dtype=param_dtype)
+                wandb.log({f"Generated images -- Step {train_state.step}": wandb.Image(image)})
 
             # log metrics
             if (
@@ -506,16 +505,16 @@ def main(job_config: JobConfig):
                     f"{color.red} im/s: {images_per_sec:.2f}{color.reset}"
                 )
                 
-                # wandb.log({
-                #     "step": train_state.step,
-                #     "loss": global_avg_loss,
-                #     "memory_max_reserved_gib": gpu_mem_stats.max_reserved_gib,
-                #     "memory_max_reserved_pct": gpu_mem_stats.max_reserved_pct,
-                #     "wps": round(wps),
-                #     "mfu": mfu,
-                #     "its": its,
-                #     "im_s": images_per_sec
-                # })
+                wandb.log({
+                    "step": train_state.step,
+                    "loss": global_avg_loss,
+                    "memory_max_reserved_gib": gpu_mem_stats.max_reserved_gib,
+                    "memory_max_reserved_pct": gpu_mem_stats.max_reserved_pct,
+                    "wps": round(wps),
+                    "mfu": mfu,
+                    "its": its,
+                    "im_s": images_per_sec
+                })
 
                 losses_since_last_log.clear()
                 ntokens_since_last_log = 0

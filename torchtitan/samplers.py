@@ -77,6 +77,7 @@ def rf_sample_euler_cfg(model: torch.nn.Module,
                     device: str = "cuda",
                     classes: List[str] = None,
                     cfg_scales: List[float] = [2.0],
+                    batch_dtype = torch.bfloat16
                     ):
 
     # create a dummy batch
