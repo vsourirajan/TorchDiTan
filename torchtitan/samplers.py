@@ -162,3 +162,4 @@ def rf_sample_euler_cfg(model: torch.nn.Module,
     plt.tight_layout()
     plt.savefig(f"rf_sample_euler_cfg_comparison_{N}.png", bbox_inches='tight', dpi=300)
     plt.close()
+    return fig
