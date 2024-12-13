@@ -288,7 +288,7 @@ def main(job_config: JobConfig):
             batch = next(data_iterator) #[B, L] [B, L] for language
 
    
-            ntokens_since_last_log += job_config.training.seq_len
+            ntokens_since_last_log += job_config.training.seq_len * job_config.training.batch_size
             nimages_since_last_log += job_config.training.batch_size
             steps_since_last_log += 1
             data_loading_times.append(time.perf_counter() - data_load_start)
