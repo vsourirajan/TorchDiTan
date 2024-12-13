@@ -5,6 +5,8 @@
 # LICENSE file in the root directory of this source tree.
 
 import os
+os.environ["CUDA_VISIBLE_DEVICES"] = "0,1,2,3,5,6,7"
+
 import time
 from datetime import timedelta
 
@@ -79,8 +81,6 @@ def main(job_config: JobConfig):
         tags=[f"world_size_{world_size}"],
     )
 
-
-    breakpoint()
     logger.info(f"Starting job: {job_config.job.description}")
     
     # used for colorful printing
@@ -137,7 +137,7 @@ def main(job_config: JobConfig):
 
     if job_config.dataset.batch_size == -1:
         job_config.dataset.batch_size = job_config.training.batch_size
-    data_loader, sampler = build_image_dataloader(job_config.dataset)
+    data_loader, sampler, classes = build_image_dataloader(job_config.dataset)
 
     # build model (using meta init)
     model_cls = model_name_to_cls[model_name]
@@ -150,16 +150,20 @@ def main(job_config: JobConfig):
     model_config.vocab_size = tokenizer.n_words
     model_config.max_seq_len = job_config.training.seq_len
 
-    if model_config.max_seq_len == -1:
-        #compute max seq len
-        fixed_timestep_and_label_embedder_size = 2
-        patch_size = model_config.patch_size
-        image_size = job_config.dataset.image_size
-        max_seq_len = (image_size[0] // patch_size) * (image_size[1] // patch_size) + fixed_timestep_and_label_embedder_size
-      
-        model_config.max_seq_len = max_seq_len
-        job_config.training.seq_len = max_seq_len
-        print("[INFO] max_seq_len not specified, manually calculated to be", max_seq_len)
+   
+    #compute max seq len
+    fixed_timestep_and_label_embedder_size = 2
+    patch_size = model_config.patch_size
+    image_size = job_config.dataset.image_size
+    num_classes = job_config.dataset.num_classes
+    max_seq_len = (image_size[0] // patch_size) * (image_size[1] // patch_size) + fixed_timestep_and_label_embedder_size
+    
+    model_config.max_seq_len = max_seq_len
+    job_config.training.seq_len = max_seq_len
+
+    model_config.image_size = image_size
+    model_config.num_classes = num_classes
+    print("[INFO] max_seq_len not specified, manually calculated to be", max_seq_len)
 
 
     logger.info(f"Building {model_name} {job_config.model.flavor} with {model_config}")
@@ -342,7 +346,7 @@ def main(job_config: JobConfig):
             batch["class_idx"] = batch["class_idx"].cuda()
 
             param_dtype = torch.bfloat16 if job_config.training.mixed_precision_param == "bfloat16" else torch.float32
-            print("PARAM DTYPE", param_dtype)
+            #print("PARAM DTYPE", param_dtype)
             batch["original_input"] = batch["original_input"].to(dtype=param_dtype)
             #batch["param_dtype"] = param_dtype
 
@@ -389,7 +393,7 @@ def main(job_config: JobConfig):
                     x1 = batch["original_input"]
                     x0 = torch.randn_like(x1).to(x1.device)
 
-                    print("original input min", x1.min(), "max", x1.max())
+                    # print("original input min", x1.min(), "max", x1.max())
                     
                     bs = x1.shape[0]
                     t = torch.rand(bs, device=x1.device, dtype=param_dtype)
@@ -399,7 +403,7 @@ def main(job_config: JobConfig):
                     xt = xt.to(dtype=param_dtype)
                     batch["input"] = xt
                     
-                    print("[LOG] model dtype: ", model.x_embedder.proj.weight.dtype)
+                    # print("[LOG] model dtype: ", model.x_embedder.proj.weight.dtype)
                     pred = model(batch) #b, c, h, w
 
                     loss = torch.nn.functional.mse_loss(pred, x1 - x0)
@@ -429,8 +433,8 @@ def main(job_config: JobConfig):
             losses_since_last_log.append(loss)
 
             if train_state.step % job_config.metrics.sample_freq == 0:
-                figure = rf_sample_euler_cfg(model, N=50, batch_size=job_config.metrics.sample_batch_size, device="cuda", classes=CIFAR10Wrapper.classes)
-                wandb.log({f"Generated images -- Step {train_state.step}": wandb.Image(image)})
+                figure = rf_sample_euler_cfg(model, N=50, batch_size=job_config.metrics.sample_batch_size, device="cuda", classes=classes)
+                # wandb.log({f"Generated images -- Step {train_state.step}": wandb.Image(image)})
 
             # log metrics
             if (
@@ -502,16 +506,16 @@ def main(job_config: JobConfig):
                     f"{color.red} im/s: {images_per_sec:.2f}{color.reset}"
                 )
                 
-                wandb.log({
-                    "step": train_state.step,
-                    "loss": global_avg_loss,
-                    "memory_max_reserved_gib": gpu_mem_stats.max_reserved_gib,
-                    "memory_max_reserved_pct": gpu_mem_stats.max_reserved_pct,
-                    "wps": round(wps),
-                    "mfu": mfu,
-                    "its": its,
-                    "im_s": images_per_sec
-                })
+                # wandb.log({
+                #     "step": train_state.step,
+                #     "loss": global_avg_loss,
+                #     "memory_max_reserved_gib": gpu_mem_stats.max_reserved_gib,
+                #     "memory_max_reserved_pct": gpu_mem_stats.max_reserved_pct,
+                #     "wps": round(wps),
+                #     "mfu": mfu,
+                #     "its": its,
+                #     "im_s": images_per_sec
+                # })
 
                 losses_since_last_log.clear()
                 ntokens_since_last_log = 0

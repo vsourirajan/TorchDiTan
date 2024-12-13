@@ -41,6 +41,9 @@ class DiffusionModelArgs:
     norm_eps: float = 1e-5
     rope_theta: float = 10000
 
+    image_size: Tuple[int, int] = (256, 256)
+    num_classes: int = 1000
+
     max_seq_len: int = 2048
     # If `True`, then each transformer block init uses its layer ID, and if
     # `False`, each uses the total number of transformer blocks
@@ -180,8 +183,6 @@ class DiffusionTransformer(nn.Module):
                  model_args: DiffusionModelArgs,
                  patch_size: int = 2,
                  input_channels: int = 3,
-                 input_image_size: Tuple[int, int] = (256, 256),
-                 num_classes: int = 1000,
                  label_dropout_prob: float = 0.05,
                  ):
         super().__init__()
@@ -191,13 +192,16 @@ class DiffusionTransformer(nn.Module):
         self.patch_size = model_args.patch_size
 
         self.input_channels = input_channels
-        self.input_image_size = input_image_size
+        self.input_image_size = model_args.image_size
         self.patch_size = model_args.patch_size
-        self.num_classes = num_classes
+        self.num_classes = model_args.num_classes
 
-        self.x_embedder = PatchEmbed(input_image_size, (patch_size, patch_size), input_channels, model_args.dim, bias=True)
-        self.y_embedder = LabelEmbedder(num_classes, model_args.dim, dropout_prob=label_dropout_prob)
+        print("[LOG] IMAGE SIZE: , ", self.input_image_size, " NUM CLASES: ", self.num_classes)
+
+        self.x_embedder = PatchEmbed(self.input_image_size, (patch_size, patch_size), input_channels, model_args.dim, bias=True)
+        self.y_embedder = LabelEmbedder(self.num_classes, model_args.dim, dropout_prob=label_dropout_prob)
         self.t_embedder = TimestepEmbedder(model_args.dim)
+
 
         # TODO persistent should be set to false, since this buffer can be recomputed.
         # however, we set it to true for 2 reasons.  (1) due to pytorch/pytorch#123411,
