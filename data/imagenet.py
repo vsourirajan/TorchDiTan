@@ -108,7 +108,7 @@ def get_imagenet_dataloader(
 
     sampler = DistributedSampler(dataset)
 
-    return dataloader, sampler
+    return dataloader, sampler, dataset.classes
 
 if __name__ == "__main__":
     # Set the root directory for ImageNet

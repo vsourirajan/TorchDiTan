@@ -38,4 +38,4 @@ def get_cifar10_dataloader(root_dir, num_workers, image_size, batch_size):
                                 num_workers=num_workers, 
                                 pin_memory=True,
                                 sampler=sampler)
-    return data_loader, sampler
+    return data_loader, sampler, dataset.classes
