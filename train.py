@@ -286,7 +286,7 @@ def main(job_config: JobConfig):
 
    
             ntokens_since_last_log += job_config.training.seq_len
-            nimages_since_last_log += job_config.training.batch_size
+            nimages_since_last_log += job_config.dataset.batch_size
             steps_since_last_log += 1
             data_loading_times.append(time.perf_counter() - data_load_start)
 
@@ -340,6 +340,8 @@ def main(job_config: JobConfig):
 
                     x1 = batch["original_input"]
                     x0 = torch.randn_like(x1).to(x1.device)
+
+                    print("original input min", x1.min(), "max", x1.max())
                     
                     bs = x1.shape[0]
                     t = torch.rand(bs, device=x1.device, dtype=param_dtype)
