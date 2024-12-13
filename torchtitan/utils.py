@@ -203,7 +203,7 @@ def get_num_flop_per_token(num_params: int, model_config, seq_len) -> int:
     #    but recomputation should not be counted in calculating MFU           (+0)
     # 3. each matmul performs 1 multiplication and 1 addition                 (*2)
     # 4. we follow the convention and do not account for sparsity in causal attention
-    flop_per_token = 6 * num_params + 12 * l * h * q * t
+    flop_per_token = 6 * num_params + 24 * l * h * q * t
 
     return flop_per_token
 

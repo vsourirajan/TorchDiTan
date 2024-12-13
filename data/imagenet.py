@@ -30,6 +30,8 @@ class ImageNetDataset(Dataset):
         )
         # Get the idx to class mapping from torchvision's ImageNet
         self.idx_to_class = {idx: cls for cls, idx in self.dataset.class_to_idx.items()}
+        #no way i seriously have to hardcode this class right??
+        self.idx_to_class[657] = 'missle'
     
     def __len__(self):
         return len(self.dataset)

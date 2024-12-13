@@ -83,7 +83,7 @@ def rf_sample_euler_cfg(model: torch.nn.Module,
     # create a dummy batch
     class_indices = torch.randint(0, model.num_classes, (batch_size,), device=device)
     batch = {
-        "input": torch.randn(batch_size, model.input_channels, model.input_image_size[0], model.input_image_size[1], device=device),
+        "input": torch.randn(batch_size, model.input_channels, model.input_image_size[0], model.input_image_size[1], device=device, dtype=batch_dtype),
         "class_idx": class_indices,
     }
 
@@ -98,7 +98,7 @@ def rf_sample_euler_cfg(model: torch.nn.Module,
         }
         
         for i in tqdm(range(N)):
-            current_batch["time"] = torch.ones((batch_size,), device=device) * i / N
+            current_batch["time"] = torch.ones((batch_size,), device=device, dtype = batch_dtype) * i / N
 
             # Run both conditional and unconditional forward passes
             if cfg_scale > 0:
