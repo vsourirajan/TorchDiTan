@@ -5,7 +5,6 @@
 # LICENSE file in the root directory of this source tree.
 
 import os
-os.environ["CUDA_VISIBLE_DEVICES"] = "0,1,2,3,5,6,7"
 
 import time
 from datetime import timedelta

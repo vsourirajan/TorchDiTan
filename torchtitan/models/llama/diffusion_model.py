@@ -8,157 +8,61 @@
 # Copyright (c) Meta Platforms, Inc. All Rights Reserved.
 
 
-from dataclasses import dataclass
-from typing import Optional, Tuple
 
 import torch
-import torch.nn.functional as F
-from torch import nn
+import torch.nn as nn
+from typing import Optional
+
 from torchtitan.models.norms import build_norm
-from torchtitan.models.llama.model import (
-    ModelArgs,
-    precompute_freqs_cis,
-    reshape_for_broadcast,
-    apply_rotary_emb,
-    repeat_kv,
-    Attention,
-    FeedForward,
-    TransformerBlock,
+from torchtitan.models.llama.diffusion_config import DiffusionModelArgs
+from torchtitan.models.llama.diffusion_blocks import (
+    PatchEmbed,
+    LabelEmbedder,
+    TimestepEmbedder,
+    DiffusionTransformerBlock,
+    DiffusionTransformerBlockWithContext
 )
-from einops.layers.torch import Rearrange
-import math
 
+def init_t_xy(end_x: int, end_y: int):
+    t = torch.arange(end_x * end_y, dtype=torch.float32)
+    t_x = (t % end_x).float()
+    t_y = torch.div(t, end_x, rounding_mode='floor').float()
+    return t_x, t_y
 
-@dataclass
-class DiffusionModelArgs:
-    dim: int = 4096
-    n_layers: int = 32
-    n_heads: int = 32
-    n_kv_heads: Optional[int] = None
-    vocab_size: int = -1  # defined later by tokenizer
-    multiple_of: int = 256  # make SwiGLU hidden layer size multiple of large power of 2
-    ffn_dim_multiplier: Optional[float] = None
-    norm_eps: float = 1e-5
-    rope_theta: float = 10000
-
-    image_size: Tuple[int, int] = (256, 256)
-    num_classes: int = 1000
-
-    max_seq_len: int = 2048
-    # If `True`, then each transformer block init uses its layer ID, and if
-    # `False`, each uses the total number of transformer blocks
-    depth_init: bool = True
-    norm_type: str = "rmsnorm"
-
-    patch_size: int = 2
-
-class PatchEmbed(nn.Module):
-    """ 2D Image to Patch Embedding
+def precompute_freqs_cis_2d(dim: int, end_x: int, end_y: int, theta: float = 10000.0) -> torch.Tensor:
     """
-    def __init__(
-            self,
-            img_size=(224, 224),
-            patch_size=(16, 16),
-            in_chans=3,
-            embed_dim=768,
-            norm_layer=None,
-            flatten=True,
-            bias=True,
-    ):
-        super().__init__()
-        self.img_size = img_size
-        self.patch_size = patch_size
-        self.grid_size = (img_size[0] // patch_size[0], img_size[1] // patch_size[1])
-        self.num_patches = self.grid_size[0] * self.grid_size[1]
-        self.flatten = flatten
+    Precompute the frequency tensor for complex exponentials (cis) with given dimensions.
 
-        self.proj = nn.Conv2d(in_chans, embed_dim, kernel_size=patch_size, stride=patch_size, bias=bias)
-        self.norm = norm_layer(embed_dim) if norm_layer else nn.Identity()
+    This function calculates a frequency tensor with complex exponentials using the given dimension 'dim'
+    and the end index 'end'. The 'theta' parameter scales the frequencies.
+    The returned tensor contains complex values in complex64 data type.
 
-    def forward(self, x):
-        B, C, H, W = x.shape
-        if not (H == self.img_size[0]):
-            print("[WARNING] Input image height ({H}) doesn't match model ({self.img_size[0]}).")
-        if not (W == self.img_size[1]):
-            print("[WARNING] Input image width ({W}) doesn't match model ({self.img_size[1]}).")
+    Args:
+        dim (int): Dimension of the frequency tensor.
+        end (int): End index for precomputing frequencies.
+        theta (float, optional): Scaling factor for frequency computation. Defaults to 10000.0.
 
-        assert(H == self.img_size[0], f"Input image height ({H}) doesn't match model ({self.img_size[0]}).")
-        assert(W == self.img_size[1], f"Input image width ({W}) doesn't match model ({self.img_size[1]}).")
-        x = self.proj(x)
-        if self.flatten:
-            x = x.flatten(2).transpose(1, 2)  # BCHW -> BNC
-        x = self.norm(x)
-        return x
+    Returns:
+        torch.Tensor: Precomputed frequency tensor with complex exponentials.
+    """
+    freqs_x = 1.0 / (theta ** (torch.arange(0, dim, 4)[: (dim // 4)].float() / dim))
+    freqs_y = 1.0 / (theta ** (torch.arange(0, dim, 4)[: (dim // 4)].float() / dim))
     
-class TimestepEmbedder(nn.Module):
-    """
-    Embeds scalar timesteps into vector representations.
-    """
-    def __init__(self, hidden_size, frequency_embedding_size=256):
-        super().__init__()
-        self.mlp = nn.Sequential(
-            nn.Linear(frequency_embedding_size, hidden_size, bias=True),
-            nn.SiLU(),
-            nn.Linear(hidden_size, hidden_size, bias=True),
-        )
-        self.frequency_embedding_size = frequency_embedding_size
+    t_x, t_y = init_t_xy(end_x, end_y)
+    freqs_x = torch.outer(t_x, freqs_x)
+    freqs_y = torch.outer(t_y, freqs_y)
+    freqs_cis_x = torch.polar(torch.ones_like(freqs_x), freqs_x)
+    freqs_cis_y = torch.polar(torch.ones_like(freqs_y), freqs_y)
+    out = torch.cat([freqs_cis_x, freqs_cis_y], dim=-1)
 
-    @staticmethod
-    def timestep_embedding(t, dim, max_period=10000):
-        """
-        Create sinusoidal timestep embeddings.
-        :param t: a 1-D Tensor of N indices, one per batch element.
-                          These may be fractional.
-        :param dim: the dimension of the output.
-        :return: an (N, D) Tensor of positional embeddings.
-        """
-        # https://github.com/openai/glide-text2im/blob/main/glide_text2im/nn.py
-        half = dim // 2
-        freqs = torch.exp(
-            -math.log(max_period) * torch.arange(start=0, end=half) / half
-        ).to(device=t.device)
-        args = t[:, None] * freqs[None]
-        embedding = torch.cat([torch.cos(args), torch.sin(args)], dim=-1)
-        if dim % 2:
-            embedding = torch.cat([embedding, torch.zeros_like(embedding[:, :1])], dim=-1)
-        return embedding.to(dtype=t.dtype)
-
-    def forward(self, t):
-        t_freq = self.timestep_embedding(t, self.frequency_embedding_size)
-        t_emb = self.mlp(t_freq)
-        return t_emb
+    return out
 
 
-class LabelEmbedder(nn.Module):
-    """
-    Embeds class labels into vector representations. Also handles label dropout for classifier-free guidance.
-    """
-    def __init__(self, num_classes, hidden_size, dropout_prob):
-        super().__init__()
-        use_cfg_embedding = dropout_prob > 0
-        #print("[LOG] using cfg embedding...")
-        self.embedding_table = nn.Embedding(num_classes + use_cfg_embedding, hidden_size)
-        #print("[LOG] embedding table: ", self.embedding_table)
-        self.num_classes = num_classes
-        self.dropout_prob = dropout_prob
-
-    def token_drop(self, labels, force_drop_ids=None):
-        """
-        Drops labels to enable classifier-free guidance.
-        """
-        if force_drop_ids is None:
-            drop_ids = torch.rand(labels.shape[0], device=labels.device) < self.dropout_prob
-        else:
-            drop_ids = force_drop_ids == 1
-        labels = torch.where(drop_ids, self.num_classes, labels)
-        return labels
-
-    def forward(self, labels, train, force_drop_ids=None):
-        use_dropout = self.dropout_prob > 0
-        if (train and use_dropout) or (force_drop_ids is not None):
-            labels = self.token_drop(labels, force_drop_ids)
-        embeddings = self.embedding_table(labels)
-        return embeddings
+# Move mode_to_block here from config
+mode_to_block = {
+    "context": DiffusionTransformerBlockWithContext,
+    "adaLN": DiffusionTransformerBlock
+}
 
 class DiffusionTransformer(nn.Module):
     """
@@ -181,10 +85,10 @@ class DiffusionTransformer(nn.Module):
 
     def __init__(self, 
                  model_args: DiffusionModelArgs,
-                 patch_size: int = 2,
                  input_channels: int = 3,
                  label_dropout_prob: float = 0.05,
                  ):
+        
         super().__init__()
         self.model_args = model_args
         self.vocab_size = model_args.vocab_size
@@ -195,12 +99,16 @@ class DiffusionTransformer(nn.Module):
         self.input_image_size = model_args.image_size
         self.patch_size = model_args.patch_size
         self.num_classes = model_args.num_classes
+        self.condition_mode = model_args.condition_mode
 
-        print("[LOG] IMAGE SIZE: , ", self.input_image_size, " NUM CLASES: ", self.num_classes)
+        self.num_x_patches = self.input_image_size[0] // self.patch_size
+        self.num_y_patches = self.input_image_size[1] // self.patch_size
 
-        self.x_embedder = PatchEmbed(self.input_image_size, (patch_size, patch_size), input_channels, model_args.dim, bias=True)
+        self.x_embedder = PatchEmbed(self.input_image_size, (self.patch_size, self.patch_size), input_channels, model_args.dim, bias=True)
         self.y_embedder = LabelEmbedder(self.num_classes, model_args.dim, dropout_prob=label_dropout_prob)
         self.t_embedder = TimestepEmbedder(model_args.dim)
+
+        assert model_args.condition_mode in ["adaLN", "context"]
 
 
         # TODO persistent should be set to false, since this buffer can be recomputed.
@@ -213,14 +121,18 @@ class DiffusionTransformer(nn.Module):
         self.register_buffer("freqs_cis", self._precompute_freqs_cis(), persistent=True)
 
         self.layers = torch.nn.ModuleDict()
+        dit_block = mode_to_block[model_args.condition_mode]
         for layer_id in range(model_args.n_layers):
-            self.layers[str(layer_id)] = TransformerBlock(layer_id, model_args)
+            self.layers[str(layer_id)] = dit_block(layer_id, model_args)
 
         self.norm = build_norm(
             model_args.norm_type, dim=model_args.dim, eps=model_args.norm_eps
         )
 
-        self.output = nn.Linear(model_args.dim, patch_size * patch_size * input_channels, bias=False)
+        self.output = nn.Linear(model_args.dim, self.patch_size * self.patch_size * input_channels)
+
+  
+
         self.init_weights()
 
     def init_weights(
@@ -241,6 +153,8 @@ class DiffusionTransformer(nn.Module):
         buffer_device = buffer_device or self.freqs_cis.device
         with torch.device(buffer_device):
             self.freqs_cis = self._precompute_freqs_cis()
+
+        print("freqs cis shape: ", self.freqs_cis.shape)
         # if self.tok_embeddings is not None:
         #     nn.init.normal_(self.tok_embeddings.weight)
         for layer in self.layers.values():
@@ -250,23 +164,41 @@ class DiffusionTransformer(nn.Module):
             self.norm.reset_parameters()
         final_out_std = self.model_args.dim**-0.5
         cutoff_factor = 3
+
+        # Initialize patch_embed like nn.Linear (instead of nn.Conv2d) (from DiT paper)
+        w = self.x_embedder.proj.weight.data
+        nn.init.xavier_uniform_(w.view([w.shape[0], -1]))
+        nn.init.constant_(self.x_embedder.proj.bias, 0)
+
+        # Initialize label embedding table:
+        nn.init.normal_(self.y_embedder.embedding_table.weight, std=0.02) #(from DiT paper)
+
+        # Initialize timestep embedding MLP:
+        nn.init.normal_(self.t_embedder.mlp[0].weight, std=0.02) #(from DiT paper)
+        nn.init.normal_(self.t_embedder.mlp[2].weight, std=0.02)
+
         if self.output is not None:
-            nn.init.trunc_normal_(
-                self.output.weight,
-                mean=0.0,
-                std=final_out_std,
-                a=-cutoff_factor * final_out_std,
-                b=cutoff_factor * final_out_std,
-            )
+            # nn.init.trunc_normal_(
+            #     self.output.weight,
+            #     mean=0.0,
+            #     std=final_out_std,
+            #     a=-cutoff_factor * final_out_std,
+            #     b=cutoff_factor * final_out_std,
+            # )
+
+            # the output layers of diffusion models are initialized to 0
+            nn.init.constant_(self.output.weight, 0)
+            nn.init.constant_(self.output.bias, 0)
 
     def _precompute_freqs_cis(self) -> torch.Tensor:
-        return precompute_freqs_cis(
+        return precompute_freqs_cis_2d(
             self.model_args.dim // self.model_args.n_heads,
             # Need to compute until at least the max token limit for generation
             # TODO: explain in docs/composability.md why we removed the 2x
             # relaxing in our CP enablement PR
-            self.model_args.max_seq_len,
-            self.model_args.rope_theta,
+            end_x=self.num_x_patches,
+            end_y=self.num_y_patches,
+            theta=self.model_args.rope_theta,
         )
     
     def unpatchify(self, x):
@@ -311,33 +243,33 @@ class DiffusionTransformer(nn.Module):
         input = data_entries["input"]
         class_idx = data_entries["class_idx"]
         time = data_entries["time"]
+        force_drop_ids = data_entries.get("force_drop_ids", None)
+
         #param_dtype = data_entries["param_dtype"]
 
         h = self.x_embedder(input) # B, num_patches, dim
 
-        #integrate the timestep and class embedding into the input embedding, concatting on patches dimension
-        # print("[LOG] Param dtype: ", param_dtype)
-        # print("Time dtype: ", time.dtype)
         t_embedding = self.t_embedder(time)
-        h = torch.cat([h, t_embedding.unsqueeze(1)], dim=1) # B, num_patches + 1, dim
-
-        force_drop_ids = data_entries.get("force_drop_ids", None)
         y_embedding = self.y_embedder(class_idx, True, force_drop_ids)
-        h = torch.cat([h, y_embedding.unsqueeze(1)], dim=1) # B, num_patches + 2, dim
+
+        if self.condition_mode == "context":
+            h = torch.cat([h, t_embedding.unsqueeze(1), y_embedding.unsqueeze(1)], dim=1) # B, num_patches + 2, dim
+
+        c = t_embedding + y_embedding #unused for context mode, not many flops so it should be fine
 
         for layer in self.layers.values():
-            h = layer(h, self.freqs_cis)
+            h = layer(h, c, self.freqs_cis)
 
         h = self.norm(h) if self.norm else h
         output = self.output(h) if self.output else h
 
         #cut off last 2 dimensions to get (B, num_patches, dim) tensor back
-        output = output[:, :-2, :]
+        output = output[:, :-2, :]  if self.condition_mode == "context" else output
         output = self.unpatchify(output)
         return output
 
     @classmethod
-    def from_model_args(cls, model_args: ModelArgs) -> "Transformer":
+    def from_model_args(cls, model_args: DiffusionModelArgs) -> "DiffusionTransformer":
         """
         Initialize a Transformer model from a ModelArgs object.
 
