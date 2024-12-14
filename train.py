@@ -75,8 +75,9 @@ def main(job_config: JobConfig):
     wandb.init(
         project="torchditan",
         config=config_dict,
-        group=job_config.job.description,  # group runs from same job together
-        tags=[f"world_size_{world_size}"],
+        group=job_config.job.description,  
+        tags=[f"world_size_{world_size}", f"{job_config.dataset.dataset_name}"],
+        mode='online' if job_config.metrics.enable_wandb else 'disabled'
     )
 
     logger.info(f"Starting job: {job_config.job.description}")
@@ -520,7 +521,8 @@ def main(job_config: JobConfig):
                     "wps": round(wps),
                     "mfu": mfu,
                     "its": its,
-                    "im_s": images_per_sec
+                    "im_s": images_per_sec,
+                    "num_flop_per_token": num_flop_per_token
                 })
 
                 losses_since_last_log.clear()
