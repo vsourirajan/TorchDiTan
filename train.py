@@ -31,10 +31,9 @@ from torchtitan.parallelisms import (
 )
 
 from torchtitan.profiling import maybe_enable_memory_snapshot, maybe_enable_profiling
+from torchtitan.samplers import sample_and_visualize
 
-from torchtitan.samplers import rf_sample_euler, rf_sample_euler_cfg
 from data import build_image_dataloader
-
 from dataclasses import asdict
 
 def get_config_dict(config: JobConfig) -> dict:
@@ -431,9 +430,17 @@ def main(job_config: JobConfig):
 
             losses_since_last_log.append(loss)
 
-            if train_state.step % job_config.metrics.sample_freq == 0:
-                figure = rf_sample_euler_cfg(model, N=50, batch_size=job_config.metrics.sample_batch_size, device="cuda", classes=classes, batch_dtype=param_dtype)
-                wandb.log({f"Generated images -- Step {train_state.step}": wandb.Image(figure)})
+            if (train_state.step - 1) % job_config.metrics.sample_freq == 0:
+                # Generate and visualize samples
+                vis_results = sample_and_visualize(
+                    model=model,
+                    batch=batch,
+                    param_dtype=param_dtype,
+                    classes=classes
+                )
+                
+                # Log to wandb
+                wandb.log(vis_results, step=train_state.step)
 
             # log metrics
             if (

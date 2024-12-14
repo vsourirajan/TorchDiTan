@@ -4,6 +4,7 @@ from torch.utils.data import DataLoader, Dataset, DistributedSampler
 from torchvision import transforms
 from torchvision.datasets import ImageNet
 from typing import Optional, Callable, Dict
+from data.imagenet_utils import imagenet_idx_to_class
 
 class ImageNetDataset(Dataset):
     """
@@ -29,9 +30,7 @@ class ImageNetDataset(Dataset):
             transform=transform
         )
         # Get the idx to class mapping from torchvision's ImageNet
-        self.idx_to_class = {idx: cls for cls, idx in self.dataset.class_to_idx.items()}
-        #no way i seriously have to hardcode this class right??
-        self.idx_to_class[657] = 'missle'
+        self.idx_to_class = imagenet_idx_to_class
     
     def __len__(self):
         return len(self.dataset)
@@ -90,8 +89,8 @@ def get_imagenet_dataloader(
         transforms.Resize(image_size),
         transforms.CenterCrop(image_size),
         transforms.ToTensor(),
-        transforms.Normalize(mean=[0.485, 0.456, 0.406], 
-                            std=[0.229, 0.224, 0.225])
+        transforms.Normalize(mean=[0.5, 0.5, 0.5], 
+                            std=[0.5, 0.5, 0.5])
     ])
         
     dataset = ImageNetDataset(
