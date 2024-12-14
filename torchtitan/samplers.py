@@ -93,7 +93,7 @@ def rf_sample_euler_cfg(model: torch.nn.Module,
                     batch_size: int = 16, 
                     device: str = "cuda",
                     classes: List[str] = None,
-                    cfg_scales: List[float] = [1.0, 3.0],
+                    cfg_scales: List[float] = [3.0],
                     batch_dtype = torch.bfloat16,
                     class_indices = None
                     ):

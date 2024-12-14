@@ -47,13 +47,20 @@ ABLATE:
 - model size (various sizes, vary depth vs width while keeping size constant)
 - patch size
 - batch size (?)
+- float 8 linear
 - compile
+- compiled autograd
+- compiled optimizer
 
 TRACK:
 - mfu
 - im/s
 - memory
 - time
+- loss for 1000 steps
+
+
+
 
 
 

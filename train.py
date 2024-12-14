@@ -71,13 +71,14 @@ def main(job_config: JobConfig):
 
     # Initialize wandb with unique name for each process
     config_dict = get_config_dict(job_config)
-    wandb.init(
-        project="torchditan",
-        config=config_dict,
-        group=job_config.job.description,  
-        tags=[f"world_size_{world_size}", f"{job_config.dataset.dataset_name}"],
-        mode='online' if job_config.metrics.enable_wandb else 'disabled'
-    )
+    if rank == 0:  # Only initialize wandb on the main process
+        wandb.init(
+            project="torchditan",
+            config=config_dict,
+            group=job_config.job.description,  
+            tags=[f"world_size_{world_size}", f"{job_config.dataset.dataset_name}"],
+            mode='online' if job_config.metrics.enable_wandb else 'disabled'
+        )
 
     logger.info(f"Starting job: {job_config.job.description}")
     
@@ -154,7 +155,10 @@ def main(job_config: JobConfig):
     patch_size = model_config.patch_size
     image_size = job_config.dataset.image_size
     num_classes = job_config.dataset.num_classes
-    max_seq_len = (image_size[0] // patch_size) * (image_size[1] // patch_size) + fixed_timestep_and_label_embedder_size
+    max_seq_len = (image_size[0] // patch_size) * (image_size[1] // patch_size)
+    
+    if model_config.condition_mode == "context":
+        max_seq_len += fixed_timestep_and_label_embedder_size
     
     model_config.max_seq_len = max_seq_len
     job_config.training.seq_len = max_seq_len
@@ -290,7 +294,8 @@ def main(job_config: JobConfig):
             }
             metric_logger.log(metrics, step=step)
 
-    sampler.set_epoch(train_state.step)
+    if sampler is not None:
+        sampler.set_epoch(train_state.step)
     data_iterator = iter(data_loader)
 
 
@@ -385,13 +390,9 @@ def main(job_config: JobConfig):
             else:
                 # Non-PP forward / backward
                 with train_context(optional_context_parallel_ctx):
-                    #print(input_ids)
-                    #print(input_ids.shape)
 
                     x1 = batch["original_input"]
                     x0 = torch.randn_like(x1).to(x1.device)
-
-                    # print("original input min", x1.min(), "max", x1.max())
                     
                     bs = x1.shape[0]
                     t = torch.rand(bs, device=x1.device, dtype=param_dtype)
@@ -401,7 +402,6 @@ def main(job_config: JobConfig):
                     xt = xt.to(dtype=param_dtype)
                     batch["input"] = xt
                     
-                    # print("[LOG] model dtype: ", model.x_embedder.proj.weight.dtype)
                     pred = model(batch) #b, c, h, w
 
                     loss = torch.nn.functional.mse_loss(pred, x1 - x0)
@@ -440,7 +440,8 @@ def main(job_config: JobConfig):
                 )
                 
                 # Log to wandb
-                wandb.log(vis_results, step=train_state.step)
+                if rank == 0:
+                    wandb.log(vis_results, step=train_state.step)
 
             # log metrics
             if (
@@ -512,17 +513,18 @@ def main(job_config: JobConfig):
                     f"{color.red} im/s: {images_per_sec:.2f}{color.reset}"
                 )
                 
-                wandb.log({
-                    "step": train_state.step,
-                    "loss": global_avg_loss,
-                    "memory_max_reserved_gib": gpu_mem_stats.max_reserved_gib,
-                    "memory_max_reserved_pct": gpu_mem_stats.max_reserved_pct,
-                    "wps": round(wps),
-                    "mfu": mfu,
-                    "its": its,
-                    "im_s": images_per_sec,
-                    "num_flop_per_token": num_flop_per_token
-                })
+                if rank == 0:
+                    wandb.log({
+                        "step": train_state.step,
+                        "loss": global_avg_loss,
+                        "memory_max_reserved_gib": gpu_mem_stats.max_reserved_gib,
+                        "memory_max_reserved_pct": gpu_mem_stats.max_reserved_pct,
+                        "wps": round(wps),
+                        "mfu": mfu,
+                        "its": its,
+                        "im_s": images_per_sec,
+                        "num_flop_per_token": num_flop_per_token
+                    })
 
                 losses_since_last_log.clear()
                 ntokens_since_last_log = 0
@@ -564,5 +566,6 @@ if __name__ == "__main__":
     main(config)
     
     # Cleanup wandb at the end
-    wandb.finish()
+    if rank == 0:
+        wandb.finish()
     torch.distributed.destroy_process_group()
