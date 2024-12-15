@@ -40,24 +40,24 @@ Shreya todo:
 
 
 
-ABLATE:
+ABLATE (ON PIXEL SPACE MODE)
 - dtype
 - replicate/shard degree
 - activation checkpointing
-- model size (various sizes, vary depth vs width while keeping size constant)
+- model size
 - patch size
-- batch size (?)
+- batch size
 - float 8 linear
 - compile
 - compiled autograd
 - compiled optimizer
+- activation checkpointing (selective or none)
 
 TRACK:
 - mfu
 - im/s
 - memory
 - time
-- loss for 1000 steps
 
 
 

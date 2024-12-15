@@ -147,6 +147,11 @@ class JobConfig:
                 which is the only stage that computes loss metrics.
             """,
         )
+        self.parser.add_argument(
+            "--metrics.enable_wandb",
+            action="store_true",
+            help="Whether to log metrics to Weights & Biases",
+        )
 
         # model configs
         self.parser.add_argument(

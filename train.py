@@ -153,7 +153,7 @@ def main(job_config: JobConfig):
    
     #compute max seq len
     fixed_timestep_and_label_embedder_size = 2
-    patch_size = model_config.patch_size
+    patch_size = job_config.model.patch_size
     image_size = job_config.dataset.image_size
     num_classes = job_config.dataset.num_classes
     max_seq_len = (image_size[0] // patch_size) * (image_size[1] // patch_size)
@@ -167,6 +167,7 @@ def main(job_config: JobConfig):
     model_config.image_size = image_size
     model_config.num_classes = num_classes
     model_config.input_channels = job_config.model.input_channels
+    model_config.patch_size = patch_size
     latent_diffusion_enabled = job_config.model.input_channels > 3 #fair assumption
     print("[INFO] max_seq_len not specified, manually calculated to be", max_seq_len)
 

@@ -79,8 +79,8 @@ class ImageNetDataset(Dataset):
             }
         else:
             return {
-                "original_input": self.data[idx],
-                "class_idx": self.labels[idx].item(),
+                "original_input": self.data[idx % 3],
+                "class_idx": self.labels[idx % 3].item(),
             }
     
     def get_class_name(self, idx: int) -> str:
