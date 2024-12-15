@@ -345,7 +345,14 @@ def main(job_config: JobConfig):
 
             # get batch
             data_load_start = time.perf_counter()
-            batch = next(data_iterator) #[B, L] [B, L] for language
+            try:
+                batch = next(data_iterator)
+            except StopIteration:
+                # Reset the iterator when it runs out
+                if sampler is not None:
+                    sampler.set_epoch(train_state.step)
+                data_iterator = iter(data_loader)
+                batch = next(data_iterator)
 
    
             ntokens_since_last_log += job_config.training.seq_len * job_config.training.batch_size
