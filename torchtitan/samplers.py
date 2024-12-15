@@ -141,22 +141,16 @@ def rf_sample_euler_cfg(model: torch.nn.Module,
         
         outputs.append(current_batch["input"])
 
-    # Process outputs
-    print("output min max", outputs[0].min(), outputs[0].max())
     # Concatenate the outputs horizontally
     combined_out = torch.cat(outputs, dim=3)  # Concatenate along width
     out = combined_out.cpu()
-    print("neural net out min max", out.min(), out.max(), "mean", out.mean())
-    out = (out + 1) * 0.5  # Convert from [-1,1] to [0,1]
-    out = out.clamp(0, 1)
-    out = out.permute(0, 2, 3, 1)
-    out = (out * 255).to(torch.uint8)
+
     
     # Return all generated images, not just first 16
-    return out.numpy()
+    return out
 
 @torch.no_grad()
-def sample_and_visualize(model, batch, param_dtype, classes, num_vis_samples=16):
+def sample_and_visualize(model, batch, param_dtype, classes, num_vis_samples=16, latent_decoder=None):
     """
     Generate and visualize both real and generated samples.
     
@@ -165,29 +159,17 @@ def sample_and_visualize(model, batch, param_dtype, classes, num_vis_samples=16)
         batch: Dictionary containing real images and class indices
         param_dtype: Data type for model parameters
         classes: List of class names
-        num_vis_samples: Number of samples to visualize (default: 16)
-    
-    Returns:
-        dict: Dictionary containing wandb Image objects for real and generated images
+        num_vis_samples: Number of samples to visualize
+        cosmos_decoder: Optional CosmosDecoder instance for latent diffusion
     """
-
-    #make sure we don't try to visualize more images than there are in a training batch
-    #otherwise we'll get an oom
     num_vis_samples = min(num_vis_samples, batch["original_input"].shape[0])
-
+    
     # Process real images
     real_images = batch["original_input"][:num_vis_samples]
     real_classes = batch["class_idx"][:num_vis_samples]
     
-    # Convert real images to visualization format
-    real_vis = (real_images.cpu() + 1) * 0.5
-    real_vis = real_vis.clamp(0, 1)
-    real_vis = real_vis.permute(0, 2, 3, 1)
-    real_vis = (real_vis * 255).to(torch.uint8)
-    real_images_array = real_vis.numpy()
-
     # Generate samples
-    generated_images_array = rf_sample_euler_cfg(
+    generated_latents = rf_sample_euler_cfg(
         model, 
         N=32, 
         batch_size=num_vis_samples,
@@ -196,6 +178,33 @@ def sample_and_visualize(model, batch, param_dtype, classes, num_vis_samples=16)
         batch_dtype=param_dtype,
         class_indices=real_classes
     )
+
+    # Decode latents if using latent diffusion
+    if latent_decoder is not None:
+        # Decode real latents
+        real_decoded = latent_decoder.decode(real_images)
+        real_images_array = real_decoded.cpu()
+        real_images_array = (real_images_array + 1) * 0.5
+        real_images_array = real_images_array.clamp(0, 1)
+        real_images_array = real_images_array.permute(0, 2, 3, 1)
+        real_images_array = (real_images_array * 255).to(torch.uint8).numpy()
+        
+        # Decode generated latents
+        decoded_images = latent_decoder.decode(generated_latents)
+        generated_images_array = decoded_images.cpu()
+        generated_images_array = (generated_images_array + 1) * 0.5
+        generated_images_array = generated_images_array.clamp(0, 1)
+        generated_images_array = generated_images_array.permute(0, 2, 3, 1)
+        generated_images_array = (generated_images_array * 255).to(torch.uint8).numpy()
+    else:
+        generated_images_array = generated_latents
+
+        # Convert real images to visualization format
+        real_vis = (real_images.cpu() + 1) * 0.5
+        real_vis = real_vis.clamp(0, 1)
+        real_vis = real_vis.permute(0, 2, 3, 1)
+        real_vis = (real_vis * 255).to(torch.uint8)
+        real_images_array = real_vis.numpy()
 
     # Calculate grid dimensions
     grid_size = int(np.ceil(np.sqrt(num_vis_samples)))

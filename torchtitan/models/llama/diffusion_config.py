@@ -13,7 +13,7 @@ class DiffusionModelArgs:
     norm_eps: float = 1e-5
     rope_theta: float = 10000
 
-    image_size: Tuple[int, int] = (256, 256)
+    image_size: Tuple[int, int] = (32, 32)
     num_classes: int = 1000
 
     max_seq_len: int = 2048
@@ -30,3 +30,5 @@ class DiffusionModelArgs:
     #for adaLN mode
     condition_mode: str = "adaLN"
     norm_type: str = "np_layernorm_bias"
+
+    input_channels: int = 16 #for cosmos tokens

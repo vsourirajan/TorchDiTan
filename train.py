@@ -34,6 +34,7 @@ from torchtitan.samplers import sample_and_visualize
 
 from data import build_image_dataloader
 from dataclasses import asdict
+from cosmos_latent_decoder import CosmosDecoder
 
 def get_config_dict(config: JobConfig) -> dict:
     """Convert JobConfig object to a flat dictionary for wandb logging"""
@@ -165,7 +166,14 @@ def main(job_config: JobConfig):
 
     model_config.image_size = image_size
     model_config.num_classes = num_classes
+    model_config.input_channels = job_config.model.input_channels
+    latent_diffusion_enabled = job_config.model.input_channels > 3 #fair assumption
     print("[INFO] max_seq_len not specified, manually calculated to be", max_seq_len)
+
+    latent_decoder = CosmosDecoder( #for visualization purposes
+        is_continuous=True,  # Since we're using continuous latents
+        device=device,
+    ) if latent_diffusion_enabled else None
 
 
     logger.info(f"Building {model_name} {job_config.model.flavor} with {model_config}")
@@ -436,7 +444,8 @@ def main(job_config: JobConfig):
                     model=model,
                     batch=batch,
                     param_dtype=param_dtype,
-                    classes=classes
+                    classes=classes,
+                    latent_decoder=latent_decoder 
                 )
                 
                 # Log to wandb

@@ -5,92 +5,87 @@ from torchvision import transforms
 from torchvision.datasets import ImageNet
 from typing import Optional, Callable, Dict
 from data.imagenet_utils import imagenet_idx_to_class
-from datasets import load_dataset
-from PIL import Image
-import io
 import time
 import torch.distributed as dist
-import torch.multiprocessing as mp
-from torch.nn.parallel import DistributedDataParallel as DDP
+from safetensors.torch import safe_open
+from tqdm import tqdm
+import glob
+from safetensors import safe_open
+from safetensors.torch import save_file
 
 class ImageNetDataset(Dataset):
     """
-    A wrapper around ImageNet dataset with support for both local and streaming modes.
+    A wrapper around ImageNet dataset that can return either pixel images or latent representations.
     """
     def __init__(
         self,
-        root: str = None,
+        root: str,
         split: str = 'train',
         transform: Optional[Callable] = None,
-        streaming: bool = True,
-        shuffle: bool = True,
-        shuffle_seed: int = 42,
-        buffer_size: int = 10_000
+        mode: str = 'latents',  # 'pixels' or 'latents'
+        tokenizer_type: str = 'continuous'  # 'continuous' or 'discrete'
     ):
         """
         Initialize ImageNet dataset.
         
         Args:
-            root (str, optional): Root directory of the ImageNet dataset for local mode
+            root (str): Root directory of the ImageNet dataset or path to safetensors file
             split (str): 'train' or 'val'
             transform (callable, optional): Optional transform to be applied to images
-            streaming (bool): Whether to use streaming mode from HuggingFace
-            shuffle (bool): Whether to shuffle the streaming dataset
-            shuffle_seed (int): Seed for shuffling
-            buffer_size (int): Buffer size for shuffling streaming data
+            mode (str): 'pixels' or 'latents'
+            tokenizer_type (str): 'continuous' or 'discrete', only used if mode='latents'
         """
+        self.mode = mode
         self.transform = transform
-        self.streaming = streaming
+        self.root = root  # Store the root path
+        self.tokenizer_type = tokenizer_type
         
-        if streaming:
-            self.dataset = load_dataset(
-                'ILSVRC/imagenet-1k',
-                split=split,
-                streaming=True,
-                trust_remote_code=True
-            )
-            if shuffle:
-                self.dataset = self.dataset.shuffle(
-                    seed=shuffle_seed,
-                    buffer_size=buffer_size
-                )
-            self.iterator = iter(self.dataset)
-        else:
+        if mode == 'pixels':
             self.dataset = ImageNet(
                 root=root,
                 split=split,
                 transform=transform
             )
+            # Get the idx to class mapping
+            self.idx_to_class = imagenet_idx_to_class
+            
+        else:  # mode == 'latents'
+            # Get rank information
+            self.rank = dist.get_rank() if dist.is_initialized() else 0
+            self.world_size = dist.get_world_size() if dist.is_initialized() else 1
+            
+            # Load only this rank's portion of the data
+            with safe_open(root, framework="pt", device="cpu") as f:
+                full_size = f.get_tensor("latents").shape[0]
+                samples_per_rank = full_size // self.world_size
+                start_idx = self.rank * samples_per_rank
+                end_idx = start_idx + samples_per_rank
+                
+                if self.tokenizer_type == "continuous":
+                    self.data = f.get_tensor("latents")[start_idx:end_idx].to(torch.bfloat16) * 16.0 / 255.0
+                else:
+                    self.data = f.get_tensor("indices")[start_idx:end_idx].to(torch.uint16)
+                self.labels = f.get_tensor("labels")[start_idx:end_idx]
         
-        # Get the idx to class mapping
         self.idx_to_class = imagenet_idx_to_class
-    
+
     def __len__(self):
-        if self.streaming:
-            return int(1e9)  # Practically infinite for streaming
-        return len(self.dataset)
+        if self.mode == 'pixels':
+            return len(self.dataset)
+        else:
+            return len(self.data)
     
     def __getitem__(self, idx):
-        if self.streaming:
-            try:
-                sample = next(self.iterator)
-                # Convert image bytes to PIL Image
-                image = sample['image'].convert('RGB')
-                if self.transform:
-                    image = self.transform(image)
-                return {
-                    "original_input": image,
-                    "class_idx": sample['label']
-                }
-            except StopIteration:
-                # Restart iterator if we reach the end
-                self.iterator = iter(self.dataset)
-                return self.__getitem__(0)
-        else:
+        if self.mode == 'pixels':
             image, class_idx = self.dataset[idx]
             return {
                 "original_input": image,
                 "class_idx": class_idx,
+            }
+        else:
+            return {
+                "original_input": self.data[idx],
+                "class_idx": self.labels[idx].item(),
             }
     
     def get_class_name(self, idx: int) -> str:
@@ -108,38 +103,38 @@ class ImageNetDataset(Dataset):
 
 
 def get_imagenet_dataloader(
-    root_dir: str = None,
-    num_workers: int = 4,
+    root_dir: str,
+    num_workers: int = 8,
     image_size: int = 256,
     batch_size: int = 1,
-    streaming: bool = False,
     shuffle: bool = True,
-    shuffle_seed: int = 42,
-    buffer_size: int = 10_000
+    mode: str = 'latents',
+    tokenizer_type: str = 'continuous',
 ):
     """
     Creates a DataLoader for ImageNet dataset.
     
     Args:
-        root_dir (str, optional): Root directory of ImageNet dataset for local mode
+        root_dir (str): Root directory of ImageNet dataset or path to safetensors file
         num_workers (int): Number of worker processes for data loading
-        image_size (int): Size of the images
+        image_size (int): Size of the images (only used if mode='pixels')
         batch_size (int): Batch size for the dataloader
-        streaming (bool): Whether to use streaming mode
         shuffle (bool): Whether to shuffle the dataset
-        shuffle_seed (int): Seed for shuffling
-        buffer_size (int): Buffer size for shuffling streaming data
+        mode (str): 'pixels' or 'latents'
+        tokenizer_type (str): 'continuous' or 'discrete', only used if mode='latents'
         
     Returns:
         tuple: (DataLoader, Sampler, classes_dict)
     """
-    transform = transforms.Compose([
-        transforms.Resize(image_size),
-        transforms.CenterCrop(image_size),
-        transforms.ToTensor(),
-        transforms.Normalize(mean=[0.5, 0.5, 0.5], 
-                           std=[0.5, 0.5, 0.5])
-    ])
+    transform = None
+    if mode == 'pixels':
+        transform = transforms.Compose([
+            transforms.Resize(image_size),
+            transforms.CenterCrop(image_size),
+            transforms.ToTensor(),
+            transforms.Normalize(mean=[0.5, 0.5, 0.5], 
+                               std=[0.5, 0.5, 0.5])
+        ])
         
     # Get local rank for seed modification
     local_rank = int(os.environ.get("LOCAL_RANK", 0))
@@ -148,27 +143,21 @@ def get_imagenet_dataloader(
         root=root_dir,
         split='train',
         transform=transform,
-        streaming=streaming,
-        shuffle=shuffle,
-        shuffle_seed=shuffle_seed + local_rank,  # Add rank to seed
-        buffer_size=buffer_size
+        mode=mode,
+        tokenizer_type=tokenizer_type
     )
     
-    if streaming:
-        # For streaming, we don't use DistributedSampler
-        sampler = None
-        dataloader_shuffle = False  # Shuffling is handled by the dataset
-    else:
-        sampler = DistributedSampler(dataset)
-        dataloader_shuffle = True if sampler is None else False
+    sampler = DistributedSampler(dataset)
+    dataloader_shuffle = True if sampler is None else False
     
+    print("[INFO] Creating dataloader with {} workers".format(num_workers), flush=True)
     dataloader = DataLoader(
         dataset,
         batch_size=batch_size,
         shuffle=dataloader_shuffle,
         num_workers=num_workers,
         pin_memory=True,
-        sampler=sampler
+        sampler=sampler,
     )
 
     return dataloader, sampler, dataset.classes
@@ -185,10 +174,8 @@ def test_distributed(root_dir: str):
     # Create dataloader for this rank
     dataloader, _, classes = get_imagenet_dataloader(
         root_dir=root_dir,
-        streaming=False,
         batch_size=8,
         shuffle=True,
-        buffer_size=1000,
         num_workers=4
     )
     
@@ -204,6 +191,8 @@ def test_distributed(root_dir: str):
     start_time = time.time()
     
     for i, batch in enumerate(dataloader):
+        print("batch images shape", batch['original_input'].shape)
+        
         if i >= num_batches:
             break
         

@@ -85,7 +85,6 @@ class DiffusionTransformer(nn.Module):
 
     def __init__(self, 
                  model_args: DiffusionModelArgs,
-                 input_channels: int = 3,
                  label_dropout_prob: float = 0.05,
                  ):
         
@@ -95,7 +94,7 @@ class DiffusionTransformer(nn.Module):
         self.n_layers = model_args.n_layers
         self.patch_size = model_args.patch_size
 
-        self.input_channels = input_channels
+        self.input_channels = self.model_args.input_channels
         self.input_image_size = model_args.image_size
         self.patch_size = model_args.patch_size
         self.num_classes = model_args.num_classes
@@ -104,7 +103,7 @@ class DiffusionTransformer(nn.Module):
         self.num_x_patches = self.input_image_size[0] // self.patch_size
         self.num_y_patches = self.input_image_size[1] // self.patch_size
 
-        self.x_embedder = PatchEmbed(self.input_image_size, (self.patch_size, self.patch_size), input_channels, model_args.dim, bias=True)
+        self.x_embedder = PatchEmbed(self.input_image_size, (self.patch_size, self.patch_size), self.input_channels, model_args.dim, bias=True)
         self.y_embedder = LabelEmbedder(self.num_classes, model_args.dim, dropout_prob=label_dropout_prob)
         self.t_embedder = TimestepEmbedder(model_args.dim)
 
@@ -129,10 +128,7 @@ class DiffusionTransformer(nn.Module):
             model_args.norm_type, dim=model_args.dim, eps=model_args.norm_eps
         )
 
-        self.output = nn.Linear(model_args.dim, self.patch_size * self.patch_size * input_channels)
-
-  
-
+        self.output = nn.Linear(model_args.dim, self.patch_size * self.patch_size * self.input_channels)
         self.init_weights()
 
     def init_weights(
@@ -154,7 +150,6 @@ class DiffusionTransformer(nn.Module):
         with torch.device(buffer_device):
             self.freqs_cis = self._precompute_freqs_cis()
 
-        print("freqs cis shape: ", self.freqs_cis.shape)
         # if self.tok_embeddings is not None:
         #     nn.init.normal_(self.tok_embeddings.weight)
         for layer in self.layers.values():
