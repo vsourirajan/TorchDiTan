@@ -223,4 +223,15 @@ def test_distributed():
         dist.destroy_process_group()
 
 if __name__ == "__main__":
-    test_distributed()
+
+    # torchrun \
+    # --nproc_per_node=2 \
+    # --master_port=29500 \
+    # data/imagenet.py \
+    # --root_dir=/path/to/your/imagenet/dataset
+
+    import argparse
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--root_dir", type=str, default="/local/vondrick/datasets/imagenet")
+    args = parser.parse_args()
+    test_distributed(root_dir=args.root_dir)
