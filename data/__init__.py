@@ -9,6 +9,10 @@ def build_image_dataloader(dataset_config):
 
     if dataset_config.dataset_name == "imagenet":
         return get_imagenet_dataloader(root_dir, num_workers, image_size, batch_size)
+    elif dataset_config.dataset_name == "imagenet_pixel":
+        return get_imagenet_dataloader(root_dir, num_workers, image_size, batch_size, mode="pixels")
+    elif dataset_config.dataset_name == "imagenet_dummy":
+        return get_imagenet_dataloader(root_dir, num_workers, image_size, batch_size, mode="dummy")
     elif dataset_config.dataset_name == "cifar10":
         return get_cifar10_dataloader(root_dir, num_workers, image_size, batch_size)
     else:

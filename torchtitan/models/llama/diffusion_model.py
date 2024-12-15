@@ -103,6 +103,8 @@ class DiffusionTransformer(nn.Module):
         self.num_x_patches = self.input_image_size[0] // self.patch_size
         self.num_y_patches = self.input_image_size[1] // self.patch_size
 
+        print("[MODEL] num_x_patches: ", self.num_x_patches, 'num_y_patches: ', self.num_y_patches)
+
         self.x_embedder = PatchEmbed(self.input_image_size, (self.patch_size, self.patch_size), self.input_channels, model_args.dim, bias=True)
         self.y_embedder = LabelEmbedder(self.num_classes, model_args.dim, dropout_prob=label_dropout_prob)
         self.t_embedder = TimestepEmbedder(model_args.dim)
@@ -149,6 +151,7 @@ class DiffusionTransformer(nn.Module):
         buffer_device = buffer_device or self.freqs_cis.device
         with torch.device(buffer_device):
             self.freqs_cis = self._precompute_freqs_cis()
+            # print("[MODEL]freqs cis shape: ", self.freqs_cis.shape)
 
         # if self.tok_embeddings is not None:
         #     nn.init.normal_(self.tok_embeddings.weight)
@@ -240,9 +243,13 @@ class DiffusionTransformer(nn.Module):
         time = data_entries["time"]
         force_drop_ids = data_entries.get("force_drop_ids", None)
 
+        # print("[MODEL] input shape: ", input.shape)
+
         #param_dtype = data_entries["param_dtype"]
 
         h = self.x_embedder(input) # B, num_patches, dim
+
+        # print("[MODEL] h shape: ", h.shape)
 
         t_embedding = self.t_embedder(time)
         y_embedding = self.y_embedder(class_idx, True, force_drop_ids)

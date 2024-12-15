@@ -62,8 +62,8 @@ llama3_configs = {
 
 llama3_diffusion_configs = {
     "debugmodel": DiffusionModelArgs(dim=256, n_layers=8, n_heads=16, rope_theta=10000, patch_size=2),
-    "DiT-S": DiffusionModelArgs(dim=384, n_layers=12, n_heads=6, rope_theta=10000),
-    "DiT-L": DiffusionModelArgs(dim=1024, n_layers=24, n_heads=24, rope_theta=10000),
+    "DiT-S": DiffusionModelArgs(dim=384, n_layers=12, n_heads=8, rope_theta=10000),
+    "DiT-L": DiffusionModelArgs(dim=1024, n_layers=24, n_heads=16, rope_theta=10000),
     "DiT-1B": DiffusionModelArgs(dim=1536, n_layers=32, n_heads=32, rope_theta=10000), #around 1.5 B actually
-    "DiT-7B": DiffusionModelArgs(dim=2560, n_layers=60, n_heads=60, rope_theta=10000),
+    "DiT-7B": DiffusionModelArgs(dim=2560, n_layers=60, n_heads=64, rope_theta=10000),
 }

@@ -80,6 +80,7 @@ def reshape_for_broadcast(freqs_cis: torch.Tensor, x: torch.Tensor) -> torch.Ten
     assert 0 <= 1 < ndim
     seqlen = x.shape[1]
     freqs_cis = freqs_cis[0:seqlen]
+    # print("[MODEL] freqs cis shape: ", freqs_cis.shape, "x shape: ", x.shape, "seqlen: ", seqlen)
     assert freqs_cis.shape == (seqlen, x.shape[-1])
     shape = [d if i == 1 or i == ndim - 1 else 1 for i, d in enumerate(x.shape)]
     return freqs_cis.view(*shape)
