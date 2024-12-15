@@ -25,7 +25,7 @@ enable_wandb = true
 batch_size = -1 # get it from training.batch_size
 dataset_name = "imagenet"
 root_dir = "/local/vondrick/alper/imagenet_ci8x8.safetensors" #local/vondrick/dataset/imagenet for pixels
-num_workers = 8
+num_workers = 4
 image_size = [32, 32]
 num_classes = 1000
 
