@@ -55,4 +55,10 @@ class CosmosDecoder:
         return reconstructed
 
 if __name__ == "__main__":
-    main()
+    checkpoint_dir = "./pretrained_ckpts"
+    model_name = "Cosmos-Tokenizer-CI8x8"
+    if not os.path.exists(f"{checkpoint_dir}/{model_name}"):
+        os.makedirs(f"{checkpoint_dir}/{model_name}", exist_ok=True)
+        print(f"Downloading {model_name}...")
+        hf_repo = f"nvidia/{model_name}"
+        snapshot_download(repo_id=hf_repo, local_dir=f"{checkpoint_dir}/{model_name}")
