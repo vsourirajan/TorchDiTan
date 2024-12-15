@@ -188,6 +188,10 @@ class JobConfig:
             help="Whether the fused implementation(CUDA only) is used.",
         )
 
+        self.parser.add_argument(
+            "--dataset.root_dir", type=str, default="./data", help="Root directory for the dataset"
+        )
+
         # training configs
         self.parser.add_argument(
             "--training.dataset", type=str, default="c4_mini", help="Dataset to use"
