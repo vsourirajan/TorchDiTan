@@ -448,17 +448,18 @@ def main(job_config: JobConfig):
 
             if (train_state.step - 1) % job_config.metrics.sample_freq == 0:
                 # Generate and visualize samples
-                vis_results = sample_and_visualize(
-                    model=model,
-                    batch=batch,
-                    param_dtype=param_dtype,
-                    classes=classes,
-                    latent_decoder=latent_decoder 
-                )
+                if job_config.metrics.enable_sampling:
+                    vis_results = sample_and_visualize(
+                        model=model,
+                        batch=batch,
+                        param_dtype=param_dtype,
+                        classes=classes,
+                        latent_decoder=latent_decoder 
+                    )
                 
-                # Log to wandb
-                if rank == 0:
-                    wandb.log(vis_results, step=train_state.step)
+                    # Log to wandb
+                    if rank == 0:
+                        wandb.log(vis_results, step=train_state.step)
 
             # log metrics
             if (

@@ -20,18 +20,19 @@ enable_color_printing = true
 enable_tensorboard = true
 save_tb_folder = "tb"
 enable_wandb = false
+enable_sampling = false
 
 [dataset]
 batch_size = -1 # get it from training.batch_size
 dataset_name = "imagenet_dummy"
 root_dir = "/local/vondrick/alper/imagenet_ci8x8.safetensors" #local/vondrick/dataset/imagenet for pixels
 num_workers = 4
-image_size = [64, 64]
+image_size = [32, 32]
 num_classes = 1000
 
 [model]
 name = "llama3_diffusion"
-flavor = "DiT-L"
+flavor = "DiT-7B"
 norm_type = "rmsnorm"  # layernorm / np_layernorm / rmsnorm / fused_rmsnorm
 # test tokenizer.model, for debug purpose only
 tokenizer_path = "./test/assets/test_tiktoken.model"
@@ -44,7 +45,7 @@ name = "AdamW"
 lr = 1e-4
 
 [training]
-batch_size = 125
+batch_size = 16
 seq_len = -1
 warmup_steps = 100  # lr scheduler warm up, normally 20% of the train steps
 max_norm = 1.0  # grad norm clipping

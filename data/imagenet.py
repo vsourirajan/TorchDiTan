@@ -22,8 +22,9 @@ class ImageNetDataset(Dataset):
         root: str,
         split: str = 'train',
         transform: Optional[Callable] = None,
-        mode: str = 'latents',  # 'pixels' or 'latents'
-        tokenizer_type: str = 'continuous'  # 'continuous' or 'discrete'
+        mode: str = 'latents',  # 'pixels' or 'latents' or 'dummy'
+        tokenizer_type: str = 'continuous',  # 'continuous' or 'discrete'
+        dummy_image_size: int = [32, 32] #hacky, remove this later
     ):
         """
         Initialize ImageNet dataset.
@@ -32,7 +33,7 @@ class ImageNetDataset(Dataset):
             root (str): Root directory of the ImageNet dataset or path to safetensors file
             split (str): 'train' or 'val'
             transform (callable, optional): Optional transform to be applied to images
-            mode (str): 'pixels' or 'latents'
+            mode (str): 'pixels' or 'latents' or 'dummy'
             tokenizer_type (str): 'continuous' or 'discrete', only used if mode='latents'
         """
         self.mode = mode
@@ -40,15 +41,16 @@ class ImageNetDataset(Dataset):
         self.root = root  # Store the root path
         self.tokenizer_type = tokenizer_type
         
-        if mode == 'pixels':
+        if mode == 'dummy':
+            # Create a dummy dataset with 1000 samples (same as ImageNet classes)
+            self.dummy_dataset_length = int(1e6) 
+            self.dummy_image_size = dummy_image_size        
+        elif mode == 'pixels':
             self.dataset = ImageNet(
                 root=root,
                 split=split,
                 transform=transform
-            )
-            # Get the idx to class mapping
-            self.idx_to_class = imagenet_idx_to_class
-            
+            )        
         else:  # mode == 'latents'
             # Get rank information
             self.rank = dist.get_rank() if dist.is_initialized() else 0
@@ -65,13 +67,23 @@ class ImageNetDataset(Dataset):
         self.idx_to_class = imagenet_idx_to_class
 
     def __len__(self):
-        if self.mode == 'pixels':
+        if self.mode == 'dummy':
+            return self.dummy_dataset_length
+        elif self.mode == 'pixels':
             return len(self.dataset)
         else:
             return len(self.data)
     
     def __getitem__(self, idx):
-        if self.mode == 'pixels':
+        if self.mode == 'dummy':
+            # Create a 32x32 zero image with 3 channels
+            image = torch.zeros(16, self.dummy_image_size[0], self.dummy_image_size[1])
+            class_idx = idx % 1000  # Cycle through class indices
+            return {
+                "original_input": image,
+                "class_idx": class_idx,
+            }
+        elif self.mode == 'pixels':
             image, class_idx = self.dataset[idx]
             return {
                 "original_input": image,
@@ -130,16 +142,14 @@ def get_imagenet_dataloader(
             transforms.Normalize(mean=[0.5, 0.5, 0.5], 
                                std=[0.5, 0.5, 0.5])
         ])
-        
-    # Get local rank for seed modification
-    local_rank = int(os.environ.get("LOCAL_RANK", 0))
     
     dataset = ImageNetDataset(
         root=root_dir,
         split='train',
         transform=transform,
         mode=mode,
-        tokenizer_type=tokenizer_type
+        tokenizer_type=tokenizer_type,
+        dummy_image_size=image_size
     )
     
     sampler = DistributedSampler(dataset)
@@ -171,7 +181,8 @@ def test_distributed(root_dir: str):
         root_dir=root_dir,
         batch_size=8,
         shuffle=True,
-        num_workers=4
+        num_workers=4,
+        # mode='dummy'
     )
     
     # Test different samples across ranks
