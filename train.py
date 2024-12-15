@@ -74,7 +74,7 @@ def main(job_config: JobConfig):
     config_dict = get_config_dict(job_config)
     if rank == 0:  # Only initialize wandb on the main process
         wandb.init(
-            project="torchditan",
+            project="torchditan_latent",
             config=config_dict,
             group=job_config.job.description,  
             tags=[f"world_size_{world_size}", f"{job_config.dataset.dataset_name}"],
