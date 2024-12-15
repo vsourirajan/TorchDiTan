@@ -19,7 +19,7 @@ if [ $# -ne 0 ]; then
     overrides="$*"
 fi
 
-CUDA_VISIBLE_DEVICES=4,5,6,7 PYTORCH_CUDA_ALLOC_CONF="expandable_segments:True" \
+PYTORCH_CUDA_ALLOC_CONF="expandable_segments:True" \
 torchrun --nproc_per_node=${NGPU} --rdzv_backend c10d --rdzv_endpoint="localhost:0" \
 --local-ranks-filter ${LOG_RANK} --role rank --tee 3 \
 train.py --job.config_file ${CONFIG_FILE} $overrides
