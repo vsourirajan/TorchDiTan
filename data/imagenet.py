@@ -173,7 +173,7 @@ def get_imagenet_dataloader(
 
     return dataloader, sampler, dataset.classes
 
-def test_distributed():
+def test_distributed(root_dir: str):
     # Initialize distributed environment
     if dist.is_available():
         if not dist.is_initialized():
@@ -184,7 +184,7 @@ def test_distributed():
     
     # Create dataloader for this rank
     dataloader, _, classes = get_imagenet_dataloader(
-        root_dir="/local/vondrick/datasets/imagenet",
+        root_dir=root_dir,
         streaming=False,
         batch_size=8,
         shuffle=True,
