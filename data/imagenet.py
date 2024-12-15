@@ -56,16 +56,11 @@ class ImageNetDataset(Dataset):
             
             # Load only this rank's portion of the data
             with safe_open(root, framework="pt", device="cpu") as f:
-                full_size = f.get_tensor("latents").shape[0]
-                samples_per_rank = full_size // self.world_size
-                start_idx = self.rank * samples_per_rank
-                end_idx = start_idx + samples_per_rank
-                
                 if self.tokenizer_type == "continuous":
-                    self.data = f.get_tensor("latents")[start_idx:end_idx].to(torch.bfloat16) * 16.0 / 255.0
+                    self.data = f.get_tensor("latents").to(torch.bfloat16) * 16.0 / 255.0
                 else:
-                    self.data = f.get_tensor("indices")[start_idx:end_idx].to(torch.uint16)
-                self.labels = f.get_tensor("labels")[start_idx:end_idx]
+                    self.data = f.get_tensor("indices").to(torch.uint16)
+                self.labels = f.get_tensor("labels")
         
         self.idx_to_class = imagenet_idx_to_class
 
