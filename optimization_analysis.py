@@ -10,8 +10,13 @@ plots_dir = "./plots"
 if not os.path.exists(plots_dir):
     os.makedirs(plots_dir)
 
-ablation_dir = "/local/vondrick/alper/torchtitan-dit-0/outputs/ablations_20241215_205446"
-experiment_dirs = [os.path.join(ablation_dir, dir) for dir in os.listdir(ablation_dir) if os.path.isdir(os.path.join(ablation_dir, dir))]
+#remove everything inside the plots dir
+os.system(f"rm -rf {plots_dir}/*")
+ablation_dir_1 = "/local/vondrick/alper/torchtitan-dit-0/outputs/ablations_20241216_000843" #DiT-S
+# ablation_dir_2 = "/local/vondrick/alper/torchtitan-dit-0/outputs/ablations_20241216_040406" #DiT-L
+ablation_dirs = [ablation_dir_1]
+# ablation_dirs = [ablation_dir_2]
+experiment_dirs = [os.path.join(ablation_dir, dir) for ablation_dir in ablation_dirs for dir in os.listdir(ablation_dir) if os.path.isdir(os.path.join(ablation_dir, dir))]
 
 
 def get_experiment_config_from_experiment_dir(experiment_dir):
@@ -19,10 +24,10 @@ def get_experiment_config_from_experiment_dir(experiment_dir):
     config_path = os.path.join(experiment_dir, "config.json")
     with open(config_path, "r") as f:
         config_dict = json.load(f)
-    return {
+    out = {
         'mixed_precision_param': config_dict['training']['mixed_precision_param'],
-        'replicate_degree': config_dict['training']['data_parallel_replicate_degree'],
-        'shard_degree': config_dict['training']['data_parallel_shard_degree'],
+        # 'replicate_degree': config_dict['training']['data_parallel_replicate_degree'],
+        # 'shard_degree': config_dict['training']['data_parallel_shard_degree'],
         'batch_size': config_dict['training']['batch_size'],
         'compile': config_dict['training']['compile'],
         'model_flavor': config_dict['model']['flavor'],
@@ -30,10 +35,21 @@ def get_experiment_config_from_experiment_dir(experiment_dir):
         'activation_checkpoint': config_dict['activation_checkpoint']['mode'],
         'float8_enabled': config_dict.get('float8', {}).get('enable_float8_linear', False),
         'experiment_name': config_dict['metrics']['experiment_name'],
-        'hsdp': config_dict['training']['data_parallel_replicate_degree'] > 1 and config_dict['training']['data_parallel_shard_degree'] > 1,
-        'fsdp': config_dict['training']['data_parallel_replicate_degree'] > 1 and config_dict['training']['data_parallel_shard_degree'] == 1,
-        'ddp': config_dict['training']['data_parallel_replicate_degree'] == 1 and config_dict['training']['data_parallel_shard_degree'] > 1,
+        # 'hsdp': config_dict['training']['data_parallel_replicate_degree'] > 1 and config_dict['training']['data_parallel_shard_degree'] > 1,
+        # 'fsdp': config_dict['training']['data_parallel_replicate_degree'] > 1 and config_dict['training']['data_parallel_shard_degree'] == 1,
+        # 'ddp': config_dict['training']['data_parallel_replicate_degree'] == 1 and config_dict['training']['data_parallel_shard_degree'] > 1,
     }
+
+    if config_dict['training']['data_parallel_replicate_degree'] > 1 and config_dict['training']['data_parallel_shard_degree'] > 1:
+        out['data_parallel_mode'] = 'hsdp'
+    elif config_dict['training']['data_parallel_replicate_degree'] > 1 and config_dict['training']['data_parallel_shard_degree'] == 1:
+        out['data_parallel_mode'] = 'ddp'
+    elif config_dict['training']['data_parallel_replicate_degree'] == 1 and config_dict['training']['data_parallel_shard_degree'] > 1:
+        out['data_parallel_mode'] = 'fsdp'
+    else:
+        out['data_parallel_mode'] = 'none'
+
+    return out
 
 measured_metrics = [
     'it/s',
@@ -136,9 +152,9 @@ def filter_top_two_batch_sizes(df):
         pd.DataFrame: Filtered DataFrame with only top two batch sizes per config
     """
     # Get configuration columns excluding batch_size
-    config_columns = ['mixed_precision_param', 'replicate_degree', 'shard_degree', 
+    config_columns = ['mixed_precision_param',
                      'compile', 'model_flavor', 'patch_size', 
-                     'float8_enabled', 'activation_checkpoint']
+                     'float8_enabled', 'activation_checkpoint', 'data_parallel_mode']
     
     # Initialize empty DataFrame for results
     filtered_df = pd.DataFrame()
@@ -160,130 +176,180 @@ def filter_top_two_batch_sizes(df):
     return filtered_df
 
 # Create the combined DataFrame
-filtered_incomplete_expimernts_df = filter_incomplete_experiments(combine_config_and_metrics(experiment_dirs))
-print("filtering top two batch sizes, current size", len(filtered_incomplete_expimernts_df))
-combined_df = filter_top_two_batch_sizes(filtered_incomplete_expimernts_df)
-print("after filtering top two batch sizes, current size", len(combined_df))
+combined_df = filter_incomplete_experiments(combine_config_and_metrics(experiment_dirs))
+
+# breakpoint()
+# print("filtering top two batch sizes, current size", len(filtered_incomplete_expimernts_df))
 
 #if activation_checkpoint is 'selective', set to true, otherwise false
-combined_df['activation_checkpoint'] = combined_df['activation_checkpoint'] == 'selective'
+# combined_df['activation_checkpoint'] = combined_df['activation_checkpoint'] == 'selective'
 
-EFFECT_OF = 'compile'
-MEASURE = parse_metric_name('im/s')
+# EFFECT_OF = 'compile'
+# MEASURE = parse_metric_name('im/s')
 
-def plot_paired_bar_comparison(combined_df, EFFECT_OF, MEASURE):
+def plot_percentage_increase_highest_batch(combined_df, EFFECT_OF, MEASURE, reference_value=None):
     """
-    Creates a bar plot comparing configurations with and without a specific effect.
-    Only keeps the highest batch size version when configurations are otherwise identical.
+    Creates a bar plot showing the percentage increase when applying a specific effect.
+    Only keeps the highest batch size version for each configuration.
+    
+    Args:
+        combined_df (pd.DataFrame): Input DataFrame
+        EFFECT_OF (str): The column name to study the effect of
+        MEASURE (str): The metric to measure
+        reference_value: The reference value to compare against for categorical variables
     """
-    # Get configuration columns excluding the effect being studied and batch_size
-    config_columns = ['mixed_precision_param', 'replicate_degree', 'shard_degree', 
+    # Create a copy of the DataFrame
+    df = combined_df.copy()
+    
+    # If reference_value is provided, convert categorical column to boolean
+    if reference_value is not None:
+        bool_column_name = f"{EFFECT_OF}={reference_value}"
+        df[bool_column_name] = (df[EFFECT_OF] == reference_value)
+        original_EFFECT_OF = EFFECT_OF
+        EFFECT_OF = bool_column_name
+        df.drop(columns=[original_EFFECT_OF], inplace=True)
+
+    # Get configuration columns
+    config_columns = ['mixed_precision_param', 
                      'batch_size', 'compile', 'model_flavor', 'patch_size', 
-                     'float8_enabled', 'activation_checkpoint']
+                     'float8_enabled', 'activation_checkpoint', 'data_parallel_mode']
+    if reference_value is not None:
+        config_columns.remove(original_EFFECT_OF)
+        config_columns.append(EFFECT_OF)
+    
     config_columns.remove(EFFECT_OF)
     config_columns_without_batch = [col for col in config_columns if col != 'batch_size']
 
-    # First, group by everything except batch size and EFFECT_OF
-    # For each group, keep only the highest batch size
+    print("table size before filtering", len(df))
+    # Filter to keep only the highest batch size for each configuration
     filtered_df = pd.DataFrame()
-    for _, group in combined_df.groupby(config_columns_without_batch):
-        print("new group")
-        #sort unique batch sizes and start descending until finding a pair
-        batch_sizes = sorted(group['batch_size'].unique(), reverse=True)
-        for batch_size in batch_sizes:
-            if len(group[group['batch_size'] == batch_size]) == 2:
-                filtered_df = pd.concat([filtered_df, group[group['batch_size'] == batch_size]])
-                break
-                
+    for _, group in df.groupby(config_columns_without_batch + [EFFECT_OF]):
+        max_batch = group['batch_size'].max()
+        filtered_df = pd.concat([filtered_df, group[group['batch_size'] == max_batch]])
 
-    # Check for duplicate configurations
-    config_counts = filtered_df.groupby(config_columns).size()
-    if (config_counts > 2).any():
-        raise ValueError("Found duplicate configurations! Each configuration should appear at most twice (with/without effect)")
+    print("table size after filtering", len(filtered_df))
+# 
+    # breakpoint()
 
-    # Create a figure with larger size
     plt.figure(figsize=(12, 6))
 
-    # Group by configuration and keep only paired runs
-    grouped = filtered_df.groupby(config_columns)
+    # Group by all configuration columns except EFFECT_OF and batch_size
+    grouped = filtered_df.groupby(config_columns_without_batch)
     paired_configs = []
+    
     for name, group in grouped:
-        if len(group) == 2:
-            paired_configs.append(name)
+        # breakpoint()
+        if len(group) >= 2:  # Must have both with and without effect
+            if group[EFFECT_OF].nunique() == 2:
+                paired_configs.append(name)
         else:
             print(f"Skipping {name} because it has {len(group)} runs")
 
     if not paired_configs:
         raise ValueError("No paired configurations found!")
 
-    heights_with = []
-    heights_without = []
+    percent_increases = []
     labels = []
 
     for config in paired_configs:
         group = grouped.get_group(config)
+        # print("length of group", len(group))
+        # breakpoint()
+        # breakpoint()
         
-        # Get the measurements
-        with_effect = group[group[EFFECT_OF] == True][f'latest_{parse_metric_name(MEASURE)}'].values[0]
-        without_effect = group[group[EFFECT_OF] == False][f'latest_{parse_metric_name(MEASURE)}'].values[0]
+        with_effect = group[group[EFFECT_OF] == True][f'latest_{MEASURE}'].values[0]
+        without_effect = group[group[EFFECT_OF] == False][f'latest_{MEASURE}'].values[0]
         
-        heights_with.append(with_effect)
-        heights_without.append(without_effect)
+        percent_increase = ((with_effect - without_effect) / without_effect) * 100
+        percent_increases.append(percent_increase)
         
         labels.append(group['experiment_name'].iloc[0])
 
-    # Plot bars
-    bar_width = 0.35
     x = np.arange(len(paired_configs))
+    plt.bar(x, percent_increases, color='lightblue')
 
-    plt.bar(x - bar_width/2, heights_without, bar_width, label=f'Without {EFFECT_OF}', color='lightcoral')
-    plt.bar(x + bar_width/2, heights_with, bar_width, label=f'With {EFFECT_OF}', color='lightblue')
-
-    # Customize the plot
     plt.xlabel('Configuration')
-    plt.ylabel(MEASURE)
-    plt.title(f'Effect of {EFFECT_OF} on {MEASURE}')
+    plt.ylabel(f'Percentage Increase in {MEASURE} (%)')
+    plt.title(f'Percentage Increase in {MEASURE} with {EFFECT_OF} (Highest Batch Size)')
     plt.xticks(x, labels, rotation=45, ha='right')
-    plt.legend()
 
-    # Adjust layout to prevent label cutoff
+    for i, v in enumerate(percent_increases):
+        plt.text(i, v, f'{v:.1f}%', ha='center', va='bottom')
+
     plt.tight_layout()
 
-    # Save and show the plot
-    name = f"effect_of_{EFFECT_OF}_on_{MEASURE}"
+    name = f"percent_increase_highest_batch_{EFFECT_OF}_on_{MEASURE}"
     plt.savefig(os.path.join(plots_dir, f"{name.replace('/', '_')}.png"))
     plt.show()
 
-def plot_percentage_increase(combined_df, EFFECT_OF, MEASURE):
+def plot_percentage_increase(combined_df, EFFECT_OF, MEASURE, reference_value=None):
     """
     Creates a bar plot showing the percentage increase when applying a specific effect.
     Only keeps the highest batch size version when configurations are otherwise identical.
+    
+    Args:
+        combined_df (pd.DataFrame): Input DataFrame
+        EFFECT_OF (str): The column name to study the effect of
+        MEASURE (str): The metric to measure
+        reference_value: The reference value to compare against for categorical variables
     """
+    # Create a copy of the DataFrame
+    df = combined_df.copy()
+    
+    # If reference_value is provided, convert categorical column to boolean
+    if reference_value is not None:
+        # Create new boolean column name
+        bool_column_name = f"{EFFECT_OF}={reference_value}"
+        
+        # Create boolean column based on reference value
+        df[bool_column_name] = (df[EFFECT_OF] == reference_value)
+        
+        # Store original EFFECT_OF value
+        original_EFFECT_OF = EFFECT_OF
+        
+        # Update EFFECT_OF to use new boolean column
+        EFFECT_OF = bool_column_name
+
+        #drop the original EFFECT_OF column
+        df.drop(columns=[original_EFFECT_OF], inplace=True)
+
     # Get configuration columns excluding the effect being studied and batch_size
-    config_columns = ['mixed_precision_param', 'replicate_degree', 'shard_degree', 
+    config_columns = ['mixed_precision_param', 
                      'batch_size', 'compile', 'model_flavor', 'patch_size', 
-                     'float8_enabled', 'activation_checkpoint']
+                     'float8_enabled', 'activation_checkpoint', 'data_parallel_mode']
+    if reference_value is not None:
+        config_columns.remove(original_EFFECT_OF)  # Remove original categorical column
+        config_columns.append(EFFECT_OF)  # Add new boolean column
+        
     config_columns.remove(EFFECT_OF)
+    print("config_columns", config_columns)
     config_columns_without_batch = [col for col in config_columns if col != 'batch_size']
 
-    # First, group by everything except batch size and EFFECT_OF
-    # For each group, keep only the highest batch size
+    # Rest of your existing function remains the same...
     filtered_df = pd.DataFrame()
-    for _, group in combined_df.groupby(config_columns_without_batch):
+    for _, group in df.groupby(config_columns_without_batch):
         batch_sizes = sorted(group['batch_size'].unique(), reverse=True)
         for batch_size in batch_sizes:
-            if len(group[group['batch_size'] == batch_size]) == 2:
-                filtered_df = pd.concat([filtered_df, group[group['batch_size'] == batch_size]])
-                break
-
-    # Create a figure with larger size
+            if reference_value is None:
+                if len(group[group['batch_size'] == batch_size]) == 2:
+                    assert group[group['batch_size'] == batch_size][EFFECT_OF].nunique() == 2
+                    filtered_df = pd.concat([filtered_df, group[group['batch_size'] == batch_size]])
+                    break
+            else:
+                if len(group[group['batch_size'] == batch_size]) >= 2 and len(group[(group[EFFECT_OF] == True) & (group['batch_size'] == batch_size)]) == 1:
+                    # print("adding batch size", batch_size, "len group", len(group[group['batch_size'] == batch_size]))
+                    # # breakpoint()
+                    filtered_df = pd.concat([filtered_df, group[group['batch_size'] == batch_size]])
+                    break
+                    
     plt.figure(figsize=(12, 6))
 
-    # Group by configuration and keep only paired runs
     grouped = filtered_df.groupby(config_columns)
     paired_configs = []
     for name, group in grouped:
-        if len(group) == 2:
+        if len(group) >= 2:
+            if len(group) > 2:
+                assert reference_value is not None
             paired_configs.append(name)
         else:
             print(f"Skipping {name} because it has {len(group)} runs")
@@ -296,102 +362,34 @@ def plot_percentage_increase(combined_df, EFFECT_OF, MEASURE):
 
     for config in paired_configs:
         group = grouped.get_group(config)
-        
-        # Get the measurements
+
+        assert len(group[group[EFFECT_OF] == True][f'latest_{parse_metric_name(MEASURE)}'].values) == 1
         with_effect = group[group[EFFECT_OF] == True][f'latest_{parse_metric_name(MEASURE)}'].values[0]
-        without_effect = group[group[EFFECT_OF] == False][f'latest_{parse_metric_name(MEASURE)}'].values[0]
+        without_effect = group[group[EFFECT_OF] == False][f'latest_{parse_metric_name(MEASURE)}'].values.max()
         
-        # Calculate percentage increase
         percent_increase = ((with_effect - without_effect) / without_effect) * 100
         percent_increases.append(percent_increase)
         
         labels.append(group['experiment_name'].iloc[0])
 
-    # Plot bars
     x = np.arange(len(paired_configs))
     plt.bar(x, percent_increases, color='lightblue')
 
-    # Customize the plot
     plt.xlabel('Configuration')
     plt.ylabel(f'Percentage Increase in {MEASURE} (%)')
     plt.title(f'Percentage Increase in {MEASURE} with {EFFECT_OF}')
     plt.xticks(x, labels, rotation=45, ha='right')
 
-    # Add percentage values on top of bars
     for i, v in enumerate(percent_increases):
         plt.text(i, v, f'{v:.1f}%', ha='center', va='bottom')
 
-    # Adjust layout to prevent label cutoff
     plt.tight_layout()
 
-    # Save and show the plot
     name = f"percent_increase_{EFFECT_OF}_on_{MEASURE}"
     plt.savefig(os.path.join(plots_dir, f"{name.replace('/', '_')}.png"))
     plt.show()
 
-def plot_batch_size_scaling(combined_df):
-    """
-    Creates line plots showing how metrics scale with batch size for different configurations.
-    
-    Args:
-        combined_df (pd.DataFrame): The processed experiment data
-    """
-    # Create subplots for each metric
-    fig, axes = plt.subplots(2, 2, figsize=(15, 15))
-    axes = axes.flatten()
-
-    # Group everything except batch size
-    group_columns = ['mixed_precision_param', 'replicate_degree', 'shard_degree',
-                    'compile', 'model_flavor', 'patch_size', 'float8_enabled', 
-                    'activation_checkpoint']
-
-    for idx, metric in enumerate(measured_metrics):
-        metric_name = f'latest_{parse_metric_name(metric)}'
-        
-        # Group by all parameters except batch size
-        grouped = combined_df.groupby(group_columns)
-        
-        # Plot each configuration as a separate line
-        for name, group in grouped:
-            # Sort by batch size
-            group_sorted = group.sort_values('batch_size')
-            
-            # Create more compact label
-            config_dict = dict(zip(group_columns, name))
-            label_parts = []
-            if config_dict['mixed_precision_param'] != 'fp32':
-                label_parts.append(f"mp={config_dict['mixed_precision_param']}")
-            if config_dict['replicate_degree'] > 1:
-                label_parts.append(f"rep={config_dict['replicate_degree']}")
-            if config_dict['shard_degree'] > 1:
-                label_parts.append(f"sh={config_dict['shard_degree']}")
-            if config_dict['compile']:
-                label_parts.append("comp")
-            if config_dict['float8_enabled']:
-                label_parts.append("f8")
-            if config_dict['activation_checkpoint']:
-                label_parts.append("ckpt")
-            
-            label = ','.join(label_parts)
-            
-            # Plot
-            axes[idx].plot(group_sorted['batch_size'], 
-                         group_sorted[metric_name], 
-                         marker='o', 
-                         label=label)
-        
-        axes[idx].set_xlabel('Batch Size')
-        axes[idx].set_ylabel(metric)
-        axes[idx].set_title(f'{metric} vs Batch Size')
-        axes[idx].grid(True)
-        # Put legend inside the plot with smaller font
-        axes[idx].legend(loc='best', fontsize='small')
-
-    plt.tight_layout()
-    plt.savefig(os.path.join(plots_dir, 'batch_size_scaling.png'), bbox_inches='tight')
-    plt.show()
-
-def plot_interaction_effects(combined_df, EFFECT_OF, MEASURE):
+def plot_interaction_effects(combined_df, EFFECT_OF, MEASURE, reference_value=None):
     """
     Creates a bar plot showing how different configuration changes interact with the EFFECT_OF.
     
@@ -401,20 +399,35 @@ def plot_interaction_effects(combined_df, EFFECT_OF, MEASURE):
         MEASURE (str): The metric to measure (e.g., 'im_s')
     """
     # Get configuration columns excluding the effect being studied
-    config_columns = ['mixed_precision_param', 'replicate_degree', 'shard_degree', 
+    config_columns = ['mixed_precision_param', 
                      'batch_size', 'compile', 'model_flavor', 'patch_size', 
-                     'float8_enabled', 'activation_checkpoint']
-    config_columns.remove(EFFECT_OF)
+                     'float8_enabled', 'activation_checkpoint', 'data_parallel_mode']
     config_columns_without_batch = [col for col in config_columns if col != 'batch_size']
+
+    df = combined_df.copy()
+
+    if reference_value is not None:
+        bool_column_name = f"{EFFECT_OF}={reference_value}"
+
+        config_columns_without_batch.remove(EFFECT_OF)
+
+        config_columns_without_batch.append(bool_column_name)
+
+        df[bool_column_name] = (df[EFFECT_OF] == reference_value)
+        
+        df.drop(columns=[EFFECT_OF], inplace=True)
+        EFFECT_OF = bool_column_name
 
     # First, filter to keep only the highest batch size for each configuration
     filtered_df = pd.DataFrame()
-    for _, group in combined_df.groupby(config_columns_without_batch):
+    for _, group in df.groupby(config_columns_without_batch):
         max_batch = group['batch_size'].max()
         filtered_df = pd.concat([filtered_df, group[group['batch_size'] == max_batch]])
-    
+
     # Dictionary to store effect differences
     effect_differences = {}
+
+    config_columns_without_batch.remove(EFFECT_OF)
     
     # Process each configuration column (except batch_size)
     for col in config_columns_without_batch:
@@ -439,25 +452,28 @@ def plot_interaction_effects(combined_df, EFFECT_OF, MEASURE):
                 val2_with = filtered_df[mask_val2 & (filtered_df[EFFECT_OF] == True)][f'latest_{MEASURE}'].mean()
                 val2_without = filtered_df[mask_val2 & (filtered_df[EFFECT_OF] == False)][f'latest_{MEASURE}'].mean()
                 improvement_val2 = ((val2_with - val2_without) / val2_without) * 100 if not pd.isna(val2_with) and not pd.isna(val2_without) else None
-                
-                print("\t improvement_val1", improvement_val1)
-                print("\t improvement_val2", improvement_val2)
 
                 if improvement_val1 is not None and improvement_val2 is not None:
                     effect_differences[effect_name] = improvement_val2 - improvement_val1
                     effect_differences[f"{col}: {val2}->{val1}"] = improvement_val1 - improvement_val2
 
-    # Sort effects by their impact
-    sorted_effects = sorted(effect_differences.items(), key=lambda x: x[1])
+    # Sort effects by their impact and filter for positive values only
+    sorted_effects = sorted([(k, v) for k, v in effect_differences.items() if v > 0], 
+                          key=lambda x: x[1])
+    
+    if not sorted_effects:  # Check if we have any positive effects
+        print(f"No positive interaction effects found for {EFFECT_OF}")
+        return
+        
     effects, differences = zip(*sorted_effects)
 
     # Create the plot
     plt.figure(figsize=(15, 8))
     bars = plt.bar(range(len(differences)), differences)
     
-    # Color positive and negative bars differently
-    for i, diff in enumerate(differences):
-        bars[i].set_color('lightblue' if diff >= 0 else 'lightcoral')
+    # Color all bars lightblue since they're all positive
+    for bar in bars:
+        bar.set_color('lightblue')
 
     plt.xticks(range(len(effects)), effects, rotation=45, ha='right')
     plt.xlabel('Configuration Change')
@@ -479,7 +495,15 @@ def plot_interaction_effects(combined_df, EFFECT_OF, MEASURE):
 # Example usage:
 # plot_paired_bar_comparison(combined_df, 'compile', parse_metric_name('im/s'))
 
-for effect in ['compile', 'activation_checkpoint', 'mixed_precision_param']:
-    plot_percentage_increase(combined_df, effect, parse_metric_name('im/s'))
-    plot_interaction_effects(combined_df, effect, parse_metric_name('im/s'))
-    plot_batch_size_scaling(combined_df)
+# for effect, reference_value in [('compile', None),]:
+
+for metric in ['im/s', 'mfu', 'memory_max_reserved']:
+    for effect, reference_value in [('data_parallel_mode', 'fsdp'), ('data_parallel_mode', 'hsdp'), ('data_parallel_mode', 'ddp'), ('compile', None), ('activation_checkpoint', 'selective')]:
+        print("plotting for", effect)
+        if reference_value is not None and combined_df[combined_df[effect] == reference_value].empty:
+            print("skipping", effect, reference_value)
+            continue
+        print("columns", combined_df.columns)
+        plot_percentage_increase(combined_df, effect, parse_metric_name(metric), reference_value=reference_value)
+        plot_interaction_effects(combined_df, effect, parse_metric_name(metric), reference_value=reference_value)
+        plot_percentage_increase_highest_batch(combined_df, effect, parse_metric_name(metric), reference_value=reference_value)

@@ -8,13 +8,12 @@ dtypes=("bfloat16")  # Plus one more with bfloat16_f8
 parallel_modes=("1,8" "8,1" "2,4")  # Format: "replicate,shard"
 model_sizes=("DiT-L")
 patch_sizes=(8 4 2)
-batch_sizes=(1 2 4 8 16 32 64 128 256 512 1024)
+batch_sizes=(16 32 64 128 256 512 1024)
 activation_checkpointing=("none" "selective")
 compile_modes=("true" "false")
 
 # Calculate total experiments
-total_experiments=$((${#dtypes[@]} * ${#parallel_modes[@]} * ${#model_sizes[@]} * ${#patch_sizes[@]} * ${#batch_sizes[@]} * ${#activation_checkpointing[@]} * ${#compile_modes[@]} + ${#parallel_modes[@]} * ${#model_sizes[@]} * ${#patch_sizes[@]} * ${#batch_sizes[@]} * ${#activation_checkpointing[@]} * ${#compile_modes[@]}))
-
+total_experiments=$((${#dtypes[@]} * ${#parallel_modes[@]} * ${#model_sizes[@]} * ${#patch_sizes[@]} * ${#batch_sizes[@]} * ${#activation_checkpointing[@]} * ${#compile_modes[@]}))
 # Initialize progress tracking
 current_experiment=0
 progress_file="outputs/ablations_${start_datetime}/progress.log"

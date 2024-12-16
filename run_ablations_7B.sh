@@ -13,8 +13,7 @@ activation_checkpointing=("none" "selective")
 compile_modes=("true" "false")
 
 # Calculate total experiments
-total_experiments=$((${#dtypes[@]} * ${#parallel_modes[@]} * ${#model_sizes[@]} * ${#patch_sizes[@]} * ${#batch_sizes[@]} * ${#activation_checkpointing[@]} * ${#compile_modes[@]} + ${#parallel_modes[@]} * ${#model_sizes[@]} * ${#patch_sizes[@]} * ${#batch_sizes[@]} * ${#activation_checkpointing[@]} * ${#compile_modes[@]}))
-
+total_experiments=$((${#dtypes[@]} * ${#parallel_modes[@]} * ${#model_sizes[@]} * ${#patch_sizes[@]} * ${#batch_sizes[@]} * ${#activation_checkpointing[@]} * ${#compile_modes[@]}))
 # Initialize progress tracking
 current_experiment=0
 progress_file="outputs/ablations_${start_datetime}/progress.log"
