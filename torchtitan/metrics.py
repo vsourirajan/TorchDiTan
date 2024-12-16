@@ -96,6 +96,7 @@ def build_gpu_memory_monitor():
 class MetricLogger:
     def __init__(self, log_dir, tag, enable_tb):
         self.tag = tag
+        self.log_dir = log_dir
         self.writer: Optional[SummaryWriter] = None
         if enable_tb:
             self.writer = SummaryWriter(log_dir, max_queue=1000)
@@ -138,8 +139,9 @@ def build_metric_logger(
     dump_dir = job_config.job.dump_folder
     tb_config = job_config.metrics
     save_tb_folder = tb_config.save_tb_folder
+    experiment_name = tb_config.experiment_name
     # since we don't have run id, use current minute as the identifier
-    datetime_str = datetime.now().strftime("%Y%m%d-%H%M")
+    datetime_str = experiment_name + "_" + datetime.now().strftime("%Y%m%d-%H%M")
     log_dir = os.path.join(dump_dir, save_tb_folder, datetime_str)
 
     enable_tb = tb_config.enable_tensorboard

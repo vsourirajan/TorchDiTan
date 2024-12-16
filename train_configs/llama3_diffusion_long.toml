@@ -18,7 +18,7 @@ sample_freq = 100
 sample_batch_size = 16
 enable_color_printing = true
 enable_tensorboard = true
-save_tb_folder = "tb"
+save_tb_folder = "tb_new"
 enable_wandb = true
 
 [dataset]

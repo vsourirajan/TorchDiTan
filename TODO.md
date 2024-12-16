@@ -92,3 +92,10 @@ batch_size = 8
 seq_len = 16386
 
 [rank0]:doing attention with h shape:  torch.Size([16, 16386, 256])
+
+
+
+
+[metrics]
+save_tb_folder = "tb"
+experiment_name = "dit"

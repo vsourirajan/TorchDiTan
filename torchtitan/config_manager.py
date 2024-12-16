@@ -113,7 +113,7 @@ class JobConfig:
             help="Memeory snapshot files location",
         )
 
-        # metrics configs
+
         self.parser.add_argument(
             "--metrics.log_freq",
             type=int,
@@ -152,6 +152,12 @@ class JobConfig:
             action="store_true",
             help="Whether to log metrics to Weights & Biases",
         )
+        self.parser.add_argument(
+            "--metrics.experiment_name",
+            type=str,
+            default="dit",
+            help="Name of the experiment",
+        )
 
         # model configs
         self.parser.add_argument(
@@ -177,6 +183,12 @@ class JobConfig:
             type=str,
             default="./torchtitan/datasets/tokenizer/tokenizer.model",
             help="Tokenizer path",
+        )
+        self.parser.add_argument(
+            "--model.patch_size",
+            type=int,
+            default=2,
+            help="Patch size",
         )
 
         # optimizer configs
@@ -604,10 +616,38 @@ class JobConfig:
             for k, v in section_args.items():
                 args_dict[section][k] = v
 
+        #### HACK: Save config to JSON file
+        # import json
+        # import os
+        # from datetime import datetime
+
+        # dump_dir = args_dict['job']['dump_folder']
+        # tb_config = args_dict['metrics']
+        # save_tb_folder = tb_config['save_tb_folder']
+        # experiment_name = tb_config['experiment_name']
+        # # since we don't have run id, use current minute as the identifier
+        # datetime_str = experiment_name + "_" + datetime.now().strftime("%Y%m%d-%H%M")
+        # log_dir = os.path.join(dump_dir, save_tb_folder, datetime_str)
+
+        # if not os.path.exists(log_dir):
+        #     os.makedirs(log_dir, exist_ok=True)
+
+        # # Save to JSON file
+        # filepath = os.path.join(log_dir, "config.json")
+        # with open(filepath, 'w') as f:
+        #     print("saving config to json file", args_dict, filepath)
+        #     json.dump(args_dict, f, indent=4)
+        #     logger.info(f"Config saved to {filepath}")
+        #### HACK: Save config to JSON file
+
+
         for k, v in args_dict.items():
             class_type = type(k.title(), (), v)
             setattr(self, k, class_type())
+
         self._validate_config()
+
+        return args_dict
 
     def _args_to_two_level_dict(self, args: argparse.Namespace) -> defaultdict:
         args_dict = defaultdict(defaultdict)
@@ -648,3 +688,4 @@ class JobConfig:
         cmd_args, _ = aux_parser.parse_known_args(args_list)
 
         return args, cmd_args
+    

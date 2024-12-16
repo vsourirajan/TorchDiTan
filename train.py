@@ -40,20 +40,21 @@ def get_config_dict(config: JobConfig) -> dict:
     """Convert JobConfig object to a flat dictionary for wandb logging"""
     config_dict = {}
     
+    print("at the beginning, does config have job?", hasattr(config, 'job'))
     # Iterate through all sections of the config
     for section_name in ['job', 'model', 'training', 'optimizer', 'metrics', 
                         'profiling', 'checkpoint', 'experimental', 'float8']:
         if hasattr(config, section_name):
             section = getattr(config, section_name)
             # Add all attributes from the section to the flat dict
-            for key, value in vars(section).items():
+            for key, value in section.__dict__.items():
                 config_dict[f"{section_name}.{key}"] = value
-    
+
     return config_dict
 
 # Enable debug tracing on failure: https://pytorch.org/docs/stable/elastic/errors.html
 @record
-def main(job_config: JobConfig):
+def main(job_config: JobConfig, args_dict: dict): #args dict is a hack, it's job config in dict form
     init_logger()
     
     # Initialize wandb before distributed init
@@ -174,7 +175,7 @@ def main(job_config: JobConfig):
     latent_decoder = CosmosDecoder( #for visualization purposes
         is_continuous=True,  # Since we're using continuous latents
         device=device,
-    ) if latent_diffusion_enabled else None
+    ) if (latent_diffusion_enabled and job_config.metrics.enable_sampling) else None
 
 
     logger.info(f"Building {model_name} {job_config.model.flavor} with {model_config}")
@@ -291,6 +292,12 @@ def main(job_config: JobConfig):
 
  
     metric_logger = build_metric_logger(job_config, parallel_dims)
+
+    if rank == 0:
+        import json
+        #dump the model config dict to a json file
+        with open(metric_logger.log_dir + "/config.json", "w") as f:
+            json.dump(args_dict, f)
 
     # plot losses loaded from checkpoint (if any) to TensorBoard
     # NOTE: Loss info after the last log step before checkpoint saving will not be ploted.
@@ -508,6 +515,9 @@ def main(job_config: JobConfig):
                     "wps": wps,
                     "im/s": images_per_sec,
                     "mfu(%)": mfu,
+                    "it/s": its,
+                    "im/s": images_per_sec,
+                    "num_flop_per_token": num_flop_per_token,
                     "time_metrics/end_to_end(s)": time_end_to_end,
                     "time_metrics/data_loading(s)": time_data_loading,
                     "time_metrics/data_loading(%)": time_data_loading_pct,
@@ -580,10 +590,10 @@ def main(job_config: JobConfig):
 
 if __name__ == "__main__":
     config = JobConfig()
-    config.parse_args()
-    main(config)
+    args_dict = config.parse_args()
+    main(config, args_dict)
     
     # Cleanup wandb at the end
-    if rank == 0:
-        wandb.finish()
+    # if rank == 0:
+    #     wandb.finish()
     torch.distributed.destroy_process_group()
