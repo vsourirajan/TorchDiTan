@@ -7,7 +7,7 @@ start_datetime=$(date +"%Y%m%d_%H%M%S")
 dtypes=("bfloat16")  # Plus one more with bfloat16_f8
 parallel_modes=("1,8" "8,1" "2,4")  # Format: "replicate,shard"
 model_sizes=("DiT-7B")
-patch_sizes=(2 4 8)
+patch_sizes=(8 4 2)
 batch_sizes=(1 2 4 8 16 32 64 128 256 512 1024)
 activation_checkpointing=("none" "selective")
 compile_modes=("true" "false")
@@ -121,19 +121,22 @@ run_experiment() {
 }
 
 # Run all combinations
-# Modify the batch size loop to handle OOM
-# Run all combinations
 for dtype in "${dtypes[@]}"; do
     for parallel in "${parallel_modes[@]}"; do
         for model in "${model_sizes[@]}"; do
             for patch in "${patch_sizes[@]}"; do
                 for activ in "${activation_checkpointing[@]}"; do
                     for do_compile in "${compile_modes[@]}"; do
+                        hit_oom=false
                         for batch in "${batch_sizes[@]}"; do
+                            if [ "$hit_oom" = true ]; then
+                                # Skip running but still increment counters
+                                ((current_experiment++))
+                                continue
+                            fi
                             run_experiment "$dtype" "$parallel" "$model" "$patch" "$batch" "$activ" "$do_compile"
                             if [ $? -eq 1 ]; then
-                                # If we get OOM, break out of the batch size loop
-                                break
+                                hit_oom=true
                             fi
                         done
                     done
