@@ -35,6 +35,8 @@ from torchtitan.samplers import sample_and_visualize
 from data import build_image_dataloader
 from dataclasses import asdict
 from cosmos_latent_decoder import CosmosDecoder
+from contextlib import contextmanager
+
 
 def get_config_dict(config: JobConfig) -> dict:
     """Convert JobConfig object to a flat dictionary for wandb logging"""
@@ -62,14 +64,6 @@ def main(job_config: JobConfig, args_dict: dict): #args dict is a hack, it's job
     local_rank = int(os.environ.get("LOCAL_RANK", "0"))
     world_size = int(os.environ.get("WORLD_SIZE", "1"))
     
-    # Print full config at start of training
-    logger.info("=== Configuration ===")
-    for section_name, section in vars(job_config).items():
-        if not section_name.startswith('_'):
-            logger.info(f"\n[{section_name}]")
-            for key, value in vars(section).items():
-                logger.info(f"{key}: {value}")
-    logger.info("==================")
 
     # Initialize wandb with unique name for each process
     config_dict = get_config_dict(job_config)
@@ -161,14 +155,6 @@ def main(job_config: JobConfig, args_dict: dict): #args dict is a hack, it's job
     model_config.num_classes = num_classes
     model_config.input_channels = job_config.model.input_channels
     model_config.patch_size = patch_size
-    latent_diffusion_enabled = job_config.model.input_channels > 3 #fair assumption
-    print("[INFO] max_seq_len not specified, manually calculated to be", max_seq_len)
-
-    latent_decoder = CosmosDecoder( #for visualization purposes
-        is_continuous=True,  # Since we're using continuous latents
-        device=device,
-    ) if (latent_diffusion_enabled and job_config.metrics.enable_sampling) else None
-
 
     logger.info(f"Building {model_name} {job_config.model.flavor} with {model_config}")
     with torch.device("meta"):
@@ -243,6 +229,7 @@ def main(job_config: JobConfig, args_dict: dict): #args dict is a hack, it's job
         model_parts = [model]
 
     gpu_mem_stats = gpu_memory_monitor.get_peak_stats()
+    initial_gpu_mem = gpu_mem_stats.max_reserved_gib  # Save the initial memory usage
     logger.info(
         f"GPU memory usage for model: "
         f"{gpu_mem_stats.max_reserved_gib:.2f}GiB"
@@ -325,18 +312,40 @@ def main(job_config: JobConfig, args_dict: dict): #args dict is a hack, it's job
 
     checkpoint.reset()
 
+    # Replace training loop with batch size autotuning
+    logger.info("Starting batch size autotuning...")
+    
     # Binary search parameters
     max_batch_size = 1024
     min_batch_size = 1
     found_valid_batch_size = False
-    max_retries = 3  # Number of attempts at each batch size before declaring it invalid
+    max_retries = 1  # Number of attempts at each batch size before declaring it invalid
     optimal_batch_size = None
 
     def reset_states():
-        # Reset various states and memory stats
+        # More aggressive memory clearing
         torch.cuda.empty_cache()
-        gpu_memory_monitor.reset_peak_stats()
+        torch.cuda.reset_peak_memory_stats()
+        torch.cuda.synchronize()  # Make sure all CUDA operations are completed
+        
+        # Clear model gradients
+        # Clear model states
+        for m in model_parts:
+            m.zero_grad(set_to_none=True)
+            if hasattr(m, 'reset_parameters'):
+                m.reset_parameters()
+        
+        # Force garbage collection
+        import gc
+        gc.collect()
+        torch.cuda.empty_cache()
+        
+        # Clear optimizer states
         optimizers.zero_grad()
+        for opt in optimizers.optimizers:
+            # Clear optimizer state dict
+            opt.state.clear()
+        
         if sampler is not None:
             sampler.set_epoch(train_state.step)
         checkpoint.reset()
@@ -349,83 +358,161 @@ def main(job_config: JobConfig, args_dict: dict): #args dict is a hack, it's job
         ntokens_since_last_log = 0
         steps_since_last_log = 0
 
-    def try_batch_size(batch_size):
+        time.sleep(1)
+
+    def try_batch_size(batch_size, data_iterator):
         """Try a specific batch size and return True if it works"""
-        retry_count = 0
-        while retry_count < max_retries:
-            try:
-                logger.info(f"Attempting training with batch size: {batch_size}")
-                job_config.training.batch_size = batch_size
-                
-                # Reset all states before attempting new batch size
-                reset_states()
-                
-                # Original training code
+        rank = int(os.environ.get("RANK", "0"))
+        world_size = int(os.environ.get("WORLD_SIZE", "1"))
+        
+        reset_states()
+        
+        try:
+            logger.info(f"Attempting training with batch size: {batch_size}") #important, don't remove
+            # Get initial retry count
+            initial_retries = torch.cuda.memory_stats()["num_alloc_retries"] if "num_alloc_retries" in torch.cuda.memory_stats() else 0
+          
+            for _ in range(3):
+
+                batch = next(data_iterator)
                 batch["original_input"] = batch["original_input"].cuda()
                 batch["class_idx"] = batch["class_idx"].cuda()
 
                 param_dtype = torch.bfloat16 if job_config.training.mixed_precision_param == "bfloat16" else torch.float32
+                #print("PARAM DTYPE", param_dtype)
                 batch["original_input"] = batch["original_input"].to(dtype=param_dtype)
 
                 optimizers.zero_grad()
-
+                
                 optional_context_parallel_ctx = (
                     utils.create_context_parallel_ctx(
                         cp_mesh=world_mesh["cp"],
                         cp_buffers=[batch["original_input"], batch["class_idx"], model.freqs_cis],
                         cp_seq_dims=[1, 1, 0],
                         cp_no_restore_buffers={batch["original_input"], batch["class_idx"]},
+                        )
+                        if parallel_dims.cp_enabled
+                        else None
                     )
-                    if parallel_dims.cp_enabled
-                    else None
-                )
 
                 with train_context(optional_context_parallel_ctx):
-                    x1 = batch["original_input"]
-                    x0 = torch.randn_like(x1).to(x1.device)
-                    
-                    bs = x1.shape[0]
-                    t = torch.rand(bs, device=x1.device, dtype=param_dtype)
+                    x1 = batch["original_input"][:1]
+                    x0 = torch.randn_like(x1).to(x1.device)[:1]
+
+                    x0 = x0.repeat(batch_size, 1, 1, 1)
+                    x1 = x1.repeat(batch_size, 1, 1, 1)
+
+                    t = torch.rand(batch_size, device=x1.device, dtype=param_dtype)
                     batch["time"] = t
 
                     xt = x0 + t.view(-1, 1, 1, 1) * (x1 - x0)
                     xt = xt.to(dtype=param_dtype)
                     batch["input"] = xt
-                    
+
+                    batch["class_idx"] = torch.randint(0, 1000, (batch_size,)).to(x1.device)
+
                     pred = model(batch)
                     loss = torch.nn.functional.mse_loss(pred, x1 - x0)
+                    
                     del pred
                     loss.backward()
+                    
+                    # Actually step the optimizer to build up optimizer state
+                    # clip gradients
+                    for m in model_parts:
+                        torch.nn.utils.clip_grad_norm_(
+                            m.parameters(), job_config.training.max_norm, foreach=True
+                        )
 
-                # If we reach here without OOM, batch size works
-                gpu_mem_stats = gpu_memory_monitor.get_peak_stats()
-                logger.info(
-                    f"Batch size {batch_size} succeeded. GPU memory usage: "
-                    f"{gpu_mem_stats.max_reserved_gib:.2f}GiB "
-                    f"({gpu_mem_stats.max_reserved_pct:.2f}%)"
-                )
-                return True
+                    # sync float8 amaxes and scales
+                    float8_handler.sync_float8_amax_and_scale_history(model_parts)
 
-            except torch.cuda.OutOfMemoryError:
-                reset_states()
-                retry_count += 1
-                if retry_count < max_retries:
-                    logger.info(f"OOM error. Retry attempt {retry_count}/{max_retries} with batch size {batch_size}")
+                    # optimizer step
+                    checkpoint.maybe_wait_for_staging()
+                    optimizers.step()
+                    lr_schedulers.step()
+
+                    # calculate float8 dynamic amax/scale for all-parameter for FSDP2
+                    # it issues a single all-reduce for all parameters at once for better performance
+                    float8_handler.precompute_float8_dynamic_scale_for_fsdp(model_parts)
+
+            final_retries = torch.cuda.memory_stats()["num_alloc_retries"] if "num_alloc_retries" in torch.cuda.memory_stats() else 0
+            retries = final_retries - initial_retries
+            if retries > 0:
+                raise RuntimeError("Memory allocation retries exceeded")
+            if gpu_memory_monitor.get_peak_stats().max_reserved_pct > 90:
+                raise RuntimeError("Max memory usage exceeded")
+
+            logger.info(f"Batch size {batch_size}: Success - Memory allocation retries: {retries}, GPU memory usage: {gpu_memory_monitor.get_peak_stats().max_reserved_pct:.2f}%")
+            return True
+
+        except (torch.cuda.OutOfMemoryError, Exception) as e:
+            if rank == 0:
+                final_retries = torch.cuda.memory_stats()["num_alloc_retries"] if "num_alloc_retries" in torch.cuda.memory_stats() else 0
+                retries = final_retries - initial_retries
+                current_mem = torch.cuda.memory_reserved() / 1024**3  # Convert to GB
+                if isinstance(e, torch.cuda.OutOfMemoryError):
+                    logger.info(f"Batch size {batch_size}: Failed OOM - Current reserved memory: {gpu_memory_monitor.get_peak_stats().max_reserved_pct:.2f}%, Retries: {retries}")
                 else:
-                    logger.info(f"Batch size {batch_size} failed after {max_retries} attempts")
-                    return False
+                    logger.info(f"Batch size {batch_size}: Failed {str(e)[:50]}... - Current reserved memory: {gpu_memory_monitor.get_peak_stats().max_reserved_pct:.2f}%, Retries: {retries}")
+            return False
+
+    def round_down_to_multiple(value, multiple):
+        """Round down to nearest multiple"""
+        return (value // multiple) * multiple
+
+    def estimate_max_batch_size(initial_mem_gb, peak_mem_gb, current_batch_size, gpu_total_mem_gb, batch_size_multiple, safety_factor=0.5):
+        """
+        Estimate maximum possible batch size based on memory usage patterns, always rounding down
+        """
+        batch_mem_usage = peak_mem_gb - initial_mem_gb
+        mem_per_sample = safety_factor * batch_mem_usage / current_batch_size
+        available_mem = gpu_total_mem_gb - initial_mem_gb
+        theoretical_max = int((available_mem / mem_per_sample))
+        theoretical_max = round_down_to_multiple(theoretical_max, batch_size_multiple)
+        return max(batch_size_multiple, min(theoretical_max, 1024))
 
     # Binary search for optimal batch size
-    left, right = min_batch_size, max_batch_size
+    multiple = job_config.autotune.batch_size_multiple
+    left = multiple
+    right = round_down_to_multiple(max_batch_size, multiple)
+
+    # Adjust start_guess to be a multiple (rounding down)
+    start_guess = job_config.training.batch_size if job_config.training.batch_size != -1 else (left + right) // 2
+    start_guess = round_down_to_multiple(start_guess, multiple)
+
+    if try_batch_size(start_guess, data_iterator):
+        optimal_batch_size = start_guess
+        
+        # Estimate maximum based on successful run
+        gpu_mem_stats = gpu_memory_monitor.get_peak_stats()
+        estimated_max = estimate_max_batch_size(
+            initial_gpu_mem,
+            gpu_mem_stats.max_reserved_gib,
+            start_guess,
+            80.0,  # hack: hardcoded total memory for now
+            multiple
+        )
+        
+        right = min(estimated_max, max_batch_size)
+        left = start_guess + multiple
+        
+        if rank == 0:
+            logger.info(f"First successful batch size: {start_guess}")
+            logger.info(f"Estimated maximum batch size: {right}")
+    else:
+        right = start_guess - multiple
+
+    # Binary search with multiples
     while left <= right:
-        mid = (left + right) // 2
-        if try_batch_size(mid):
-            # This batch size worked, try a larger one
+        mid = round_down_to_multiple((left + right) // 2, multiple)
+        mid = max(multiple, mid)
+        
+        if try_batch_size(mid, data_iterator):
             optimal_batch_size = mid
-            left = mid + 1
+            left = mid + multiple
         else:
-            # This batch size failed, try a smaller one
-            right = mid - 1
+            right = mid - multiple
 
     if optimal_batch_size is None:
         logger.error("Could not find a valid batch size. Even minimum batch size causes OOM.")
@@ -433,159 +520,11 @@ def main(job_config: JobConfig, args_dict: dict): #args dict is a hack, it's job
 
     # Set the optimal batch size and log it
     job_config.training.batch_size = optimal_batch_size
+        
     logger.info(f"Binary search complete. Optimal batch size found: {optimal_batch_size}")
 
-    # train loop
-    logger.info(
-        f"Training starts at step {train_state.step + 1}, "
-        f"with local batch size {job_config.training.batch_size}, "
-        f"global batch size {job_config.training.batch_size * dp_degree}, "
-        f"sequence length {job_config.training.seq_len}, "
-        f"total steps {job_config.training.steps} "
-        f"(warmup {job_config.training.warmup_steps})"
-    )
-    with maybe_enable_profiling(
-        job_config, global_step=train_state.step
-    ) as torch_profiler, maybe_enable_memory_snapshot(
-        job_config, global_step=train_state.step
-    ) as memory_profiler:
-        while train_state.step < job_config.training.steps:
-            train_state.step += 1
-            gc_handler.run(train_state.step)
-
-            # get batch
-            data_load_start = time.perf_counter()
-            try:
-                batch = next(data_iterator)
-            except StopIteration:
-                # Reset the iterator when it runs out
-                if sampler is not None:
-                    sampler.set_epoch(train_state.step)
-                data_iterator = iter(data_loader)
-                batch = next(data_iterator)
-
-   
-            ntokens_since_last_log += job_config.training.seq_len * job_config.training.batch_size
-            nimages_since_last_log += job_config.training.batch_size
-            steps_since_last_log += 1
-            data_loading_times.append(time.perf_counter() - data_load_start)
-
-            batch["original_input"] = batch["original_input"].cuda()
-            batch["class_idx"] = batch["class_idx"].cuda()
-
-            param_dtype = torch.bfloat16 if job_config.training.mixed_precision_param == "bfloat16" else torch.float32
-            #print("PARAM DTYPE", param_dtype)
-            batch["original_input"] = batch["original_input"].to(dtype=param_dtype)
-            #batch["param_dtype"] = param_dtype
-
-            optimizers.zero_grad()
-
-            # apply context parallelism if cp is enabled
-            optional_context_parallel_ctx = (
-                utils.create_context_parallel_ctx(
-                    cp_mesh=world_mesh["cp"],
-                    cp_buffers=[batch["original_input"], batch["class_idx"], model.freqs_cis],
-                    cp_seq_dims=[1, 1, 0],
-                    cp_no_restore_buffers={batch["original_input"], batch["class_idx"]},
-                )
-                if parallel_dims.cp_enabled
-                else None
-            )
-
-            if parallel_dims.pp_enabled:
-                # Pipeline Parallel forward / backward inside step() call
-                # is_last_stage = pp_mesh.get_local_rank() == pp_mesh.size() - 1
-
-                # with train_context(optional_context_parallel_ctx):
-                #     if pp_mesh.get_local_rank() == 0:
-                #         pp_schedule.step(input_ids)
-                #     elif is_last_stage:
-                #         losses = []
-                #         pp_schedule.step(target=labels, losses=losses)
-                #     else:
-                #         pp_schedule.step()
-
-                # # accumulate losses across pipeline microbatches
-                # loss = (
-                #     torch.mean(torch.stack(losses))
-                #     if is_last_stage
-                #     else torch.Tensor([-1.0])
-                # )
-                raise NotImplementedError("Pipeline parallelism not implemented for DiT")
-            else:
-                # Non-PP forward / backward
-                with train_context(optional_context_parallel_ctx):
-
-                    x1 = batch["original_input"]
-                    x0 = torch.randn_like(x1).to(x1.device)
-                    
-                    bs = x1.shape[0]
-                    t = torch.rand(bs, device=x1.device, dtype=param_dtype)
-                    batch["time"] = t
-
-                    xt = x0 + t.view(-1, 1, 1, 1) * (x1 - x0)
-                    xt = xt.to(dtype=param_dtype)
-                    batch["input"] = xt
-                    
-                    pred = model(batch) #b, c, h, w
-
-                    loss = torch.nn.functional.mse_loss(pred, x1 - x0)
-                    # pred.shape=(bs, seq_len, vocab_size)
-                    # need to free to before bwd to avoid peaking memory
-                    del pred
-                    loss.backward()
-
-            # clip gradients
-            for m in model_parts:
-                torch.nn.utils.clip_grad_norm_(
-                    m.parameters(), job_config.training.max_norm, foreach=True
-                )
-
-            # sync float8 amaxes and scales
-            float8_handler.sync_float8_amax_and_scale_history(model_parts)
-
-            # optimizer step
-            checkpoint.maybe_wait_for_staging()
-            optimizers.step()
-            lr_schedulers.step()
-
-            # calculate float8 dynamic amax/scale for all-parameter for FSDP2
-            # it issues a single all-reduce for all parameters at once for better performance
-            float8_handler.precompute_float8_dynamic_scale_for_fsdp(model_parts)
-
-            losses_since_last_log.append(loss)
-
-            if (train_state.step - 1) % job_config.metrics.sample_freq == 0:
-                # Generate and visualize samples
-                if job_config.metrics.enable_sampling:
-                    vis_results = sample_and_visualize(
-                        model=model,
-                        batch=batch,
-                        param_dtype=param_dtype,
-                        classes=classes,
-                        latent_decoder=latent_decoder 
-                    )
-
-            # signal the profiler that the next profiling step has started
-            if torch_profiler:
-                torch_profiler.step()
-            if memory_profiler:
-                memory_profiler.step()
-
-            # reduce timeout after first train step for faster signal
-            # (assuming lazy init and compilation are finished)
-            if train_state.step == 1:
-                utils.set_pg_timeouts(
-                    timeout=timedelta(seconds=job_config.comm.train_timeout_seconds),
-                    world_mesh=world_mesh,
-                )
-
-    if torch.distributed.get_rank() == 0:
-        logger.info("Sleeping 2 seconds for other ranks to complete")
-        time.sleep(2)
-
     metric_logger.close()
-    logger.info("Training completed")
+    logger.info("Batch size autotuning completed")
 
 
 if __name__ == "__main__":

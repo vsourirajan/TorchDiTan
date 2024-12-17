@@ -292,6 +292,12 @@ class JobConfig:
             help="Whether to apply loss parallel when sequence parallel is enabled",
         )
         self.parser.add_argument(
+            "--autotune.batch_size_multiple",
+            type=int,
+            default=1,
+            help="Batch size multiple for autotuning",
+        )
+        self.parser.add_argument(
             "--experimental.enable_async_tensor_parallel",
             default=False,
             action="store_true",

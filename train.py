@@ -61,15 +61,6 @@ def main(job_config: JobConfig, args_dict: dict): #args dict is a hack, it's job
     rank = int(os.environ.get("RANK", "0"))
     local_rank = int(os.environ.get("LOCAL_RANK", "0"))
     world_size = int(os.environ.get("WORLD_SIZE", "1"))
-    
-    # Print full config at start of training
-    logger.info("=== Configuration ===")
-    for section_name, section in vars(job_config).items():
-        if not section_name.startswith('_'):
-            logger.info(f"\n[{section_name}]")
-            for key, value in vars(section).items():
-                logger.info(f"{key}: {value}")
-    logger.info("==================")
 
     # Initialize wandb with unique name for each process
     config_dict = get_config_dict(job_config)

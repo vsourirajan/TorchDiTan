@@ -33,7 +33,7 @@ num_classes = 1000
 
 [model]
 name = "llama3_diffusion"
-flavor = "DiT-L"
+flavor = "DiT-0.5B"
 norm_type = "rmsnorm"  # layernorm / np_layernorm / rmsnorm / fused_rmsnorm
 # test tokenizer.model, for debug purpose only
 tokenizer_path = "./test/assets/test_tiktoken.model"
@@ -49,7 +49,7 @@ batch_size = -1
 seq_len = -1
 warmup_steps = 0  # lr scheduler warm up, normally 20% of the train steps
 max_norm = 1.0  # grad norm clipping
-steps = 50
+steps = 40
 data_parallel_replicate_degree = 1
 data_parallel_shard_degree = 1
 tensor_parallel_degree = 1
