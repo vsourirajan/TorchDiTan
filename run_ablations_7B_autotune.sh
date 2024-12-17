@@ -30,6 +30,7 @@ echo "Progress will be logged to: $progress_file"
 BASE_CMD="NGPU=8 ./train_latent_diffusion_ablate.sh"
 AUTOTUNE_CMD="NGPU=8 bash autotune_bs_train_latent_diffusion.sh"
 
+last_attempted_bs=16
 state_file=$(mktemp)
 echo "$last_attempted_bs" > "$state_file"
 
