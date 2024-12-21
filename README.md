@@ -13,10 +13,10 @@ We present TorchDiTan, a fork of Meta's TorchTitan, adapted to support large-sca
 
 
 <div style="display: flex; flex-direction: row; gap: 10px;">
-    <img src="assets/generated/latent_space1.png" width="25.00%" alt="Latent Image 1">
-    <img src="assets/generated/latent_space2.png" width="25.00%" alt="Latent Image 2">
-    <img src="assets/generated/pixel_space3.png" width="25.00%" alt="Pixel Image 2">
-    <img src="assets/generated/pixel_space4.png" width="25.00%" alt="Pixel Image 3">
+    <img src="assets/generated/latent_space1.png" width="24.00%" alt="Latent Image 1">
+    <img src="assets/generated/latent_space2.png" width="24.00%" alt="Latent Image 2">
+    <img src="assets/generated/pixel_space3.png" width="24.00%" alt="Pixel Image 2">
+    <img src="assets/generated/pixel_space4.png" width="24.00%" alt="Pixel Image 3">
 </div>
 
 ## Configuration and Training 
