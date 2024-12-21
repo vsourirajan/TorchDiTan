@@ -2,7 +2,7 @@
 
 
 # torchditan
-### COMS 6998 final project by Alper Canberk, Vaibhav Sourirajan, Shreya Somaluja.
+### COMS 6998 final project by Alper Canberk, Vaibhav Sourirajan, Shreya Somayajula.
 
 
 
