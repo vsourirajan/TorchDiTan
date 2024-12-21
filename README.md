@@ -72,13 +72,14 @@ These scripts will generate a directory under `outputs/` with the name of the ex
 
 
 
-We conduct a grid search over the following parameters to benchmark the efficiency of our implementations:
+Using `scripts/run_ablations_7B.sh` and `scripts/run_ablations_0.5B.sh`, we conduct a grid search over the following parameters to benchmark the efficiency of our implementations:
 - Automatic mixed precision
 - Parallelism strategy (ddp, fsdp, hsdp)
 - Model sizes (0.5B, 7B)
 - Batch sizes (1,2,...,1024)
 - Activation checkpointing
 - torch.compile
+
 
 Our benchmarking strategy involves constructing a dummy data loader which loaded a (64×64×16) tensor of black (latent) images. We train on this dummy batch for 50 steps and average the following metrics from the last 10 steps:
 - Percentage mean flop utilization (MFU %)
