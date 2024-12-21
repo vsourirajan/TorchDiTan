@@ -1,160 +1,140 @@
-[![4 GPU Integration Test](https://github.com/pytorch/torchtitan/actions/workflows/integration_test_4gpu.yaml/badge.svg?branch=main)](https://github.com/pytorch/torchtitan/actions/workflows/integration_test_4gpu.yaml?query=branch%3Amain)
-[![8 GPU Integration Test](https://github.com/pytorch/torchtitan/actions/workflows/integration_test_8gpu.yaml/badge.svg?branch=main)](https://github.com/pytorch/torchtitan/actions/workflows/integration_test_8gpu.yaml?query=branch%3Amain)
-
-# torchtitan
-
-`torchtitan` is currently in a pre-release state and under extensive development. Currently we showcase pre-training **Llama 3.1**, **Llama 3**, and **Llama 2** LLMs of various sizes from scratch. To use the latest features of `torchtitan`, we recommend using the most recent PyTorch nightly.
-
-`torchtitan` is a proof-of-concept for Large-scale LLM training using native PyTorch. It is (and will continue to be) a repo to showcase PyTorch's latest distributed training features in a clean, minimal codebase. torchtitan is complementary to and not a replacement for any of the great large-scale LLM training codebases such as Megatron, Megablocks, LLM Foundry, Deepspeed, etc. Instead, we hope that the features showcased in torchtitan will be adopted by these codebases quickly. torchtitan is unlikely to ever grow a large community around it.
-
-Our guiding principles when building `torchtitan`:
-
-* Designed to be easy to understand, use and extend for different training purposes.
-* Minimal changes to the model code when applying 1D, 2D, or (soon) 3D Parallel.
-* Modular components instead of a monolithic codebase.
-* Get started in minutes, not hours!
-
-### Intro video - learn more about torchtitan in under 4 mins:
-
-[![Welcome to torchtitan!](assets/images/titan_play_video.png)](https://youtu.be/ee5DOEqD35I?si=_B94PbVv0V5ZnNKE "Welcome to torchtitan!")
-
-### Our torchtitan paper on arXiv
-
-[![arXiv](https://img.shields.io/badge/arXiv-2410.06511-b31b1b.svg?style=plastic)](https://arxiv.org/abs/2410.06511)
-
-We provide a detailed look into the parallelisms and optimizations available in `torchtitan`, along with summary advice on when to use various techniques:  [TorchTitan: One-stop PyTorch native solution for production ready LLM pre-training](https://arxiv.org/abs/2410.06511).
-```
-@misc{torchtitan,
-      title={TorchTitan: One-stop PyTorch native solution for production ready LLM pre-training},
-      author={Wanchao Liang and Tianyu Liu and Less Wright and Will Constable and Andrew Gu and Chien-Chin Huang and Iris Zhang and Wei Feng and Howard Huang and Junjie Wang and Sanket Purandare and Gokul Nadathur and Stratos Idreos},
-      year={2024},
-      eprint={2410.06511},
-      archivePrefix={arXiv},
-      primaryClass={cs.CL},
-      url={https://arxiv.org/abs/2410.06511},
-}
-```
-
-### Dive into the code
-
-You may want to see how the model is defined or how parallelism techniques are applied. For a guided tour, see these files first:
-* [train.py](train.py) - the main training loop and high-level setup code
-* [torchtitan/parallelisms/parallelize_llama.py](torchtitan/parallelisms/parallelize_llama.py) - helpers for applying Data Parallel, Tensor Parallel, activation checkpointing, and `torch.compile` to the model
-* [torchtitan/parallelisms/pipeline_llama.py](torchtitan/parallelisms/pipeline_llama.py) - helpers for applying Pipeline Parallel to the model
-* [torchtitan/checkpoint.py](torchtitan/checkpoint.py) - utils for saving/loading distributed checkpoints
-* [torchtitan/float8.py](torchtitan/float8.py) - utils for applying Float8 techniques
-* [torchtitan/models/llama/model.py](torchtitan/models/llama/model.py) - the Llama model definition (shared for Llama 2 and Llama 3 variants)
-
-### Key features available
-
-1. [FSDP2](docs/fsdp.md) with per param sharding
-2. [Tensor Parallel](https://pytorch.org/docs/stable/distributed.tensor.parallel.html) (including [async TP](https://discuss.pytorch.org/t/distributed-w-torchtitan-introducing-async-tensor-parallelism-in-pytorch/209487))
-3. Selective layer and operator activation checkpointing
-4. [Distributed checkpointing](https://discuss.pytorch.org/t/distributed-w-torchtitan-optimizing-checkpointing-efficiency-with-pytorch-dcp/211250) (including async checkpointing)
-5. Checkpointable data-loading, with the C4 dataset pre-configured (144M entries)
-6. Loss, GPU memory, tokens-per-second, and MFU displayed and logged via [TensorBoard](#tensorboard)
-7. Learning rate scheduler, meta-init, optional Fused RMSNorm
-8. [Float8](https://discuss.pytorch.org/t/distributed-w-torchtitan-enabling-float8-all-gather-in-fsdp2/209323) support ([how-to](docs/float8.md))
-9. `torch.compile` support
-10. DDP and HSDP
-11. All options easily configured via [toml files](train_configs/)
-12. [Interoperable checkpoints](docs/checkpoint.md) which can be loaded directly into [`torchtune`](https://github.com/pytorch/torchtune) for fine-tuning
-13. Debugging tools including CPU/GPU profiling, [memory profiling](docs/memory_profiler.md), [Flight Recorder](#debugging), etc.
-
-We report our [Performance](docs/performance.md) verified on 64/128 GPUs.
 
 
-### Coming soon
 
-- Pipeline Parallel (and 3D parallellism)
-- Context Parallel
+# torchditan
 
 
-## Installation
+
+> For the original TorchTitan repository and README, which this repository is based on, please see [here](https://github.com/pytorch/torchtitan).
+
+> *Note to COMS 6998 teaching staff*: All of the code appears to be commited by Alper, this is because our group used a common machine to work on the project.
+
+We present TorchDiTan, a fork of Meta's TorchTitan, adapted to support large-scale, efficient pre-training of diffusion transformers (DiTs). Building on TorchTitan’s minimal and hackable nature and recent developments in DiT architecture, we integrate features for distributed training of diffusion transformers in PyTorch. Our approach introduces key enhancements to the TorchTitan codebase for diffusion modeling, including modifications to data loaders for vision datasets, swapping components of the transformer architecture (e.g. 2D rotary embeddings, non-causal attention, patchification operations), and augmenting the training pipeline (eg. progressive sampling, mixed precision, and MFU calculations). We profile various optimizations such as data/model parallelism, torch.compile, and activation checkpointing, to ensure scalability and performance.
+
+
+<div style="display: flex; flex-direction: row; gap: 10px;">
+    <img src="assets/generated/latent_space1.png" width="25.00%" alt="Latent Image 1">
+    <img src="assets/generated/latent_space2.png" width="25.00%" alt="Latent Image 2">
+    <img src="assets/generated/pixel_space3.png" width="25.00%" alt="Pixel Image 2">
+    <img src="assets/generated/pixel_space4.png" width="25.00%" alt="Pixel Image 3">
+</div>
+
+## Configuration and Training 
+
+How to start
 
 ```bash
-git clone https://github.com/pytorch/torchtitan
-cd torchtitan
-pip install -r requirements.txt
-pip3 install --pre torch --index-url https://download.pytorch.org/whl/nightly/cu121 # or cu118
+pip install --upgrade torch torchvision 
+pip install torchvision wandb matplotlib==3.9.2 tqdm scipy torchdata sentencepiece tiktoken datasets tensorboard blobfile torchvision safetensors gpustat torchao
+git clone https://github.com/NVIDIA/Cosmos-Tokenizer.git
+cd Cosmos-Tokenizer
+pip install -e .
+cd ..
 ```
 
-### Downloading a tokenizer
+The entry point to our code is `scripts/train_latent_diffusion.sh`, which calls the `train.py` script with the appropriate arguments. By default, this script will use the `/train_configs/llama3_latent_diffusion.toml` configuration file, which trains a 0.5B DiT model on `ImageNet` on a single GPU.
 
-`torchtitan` currently supports training Llama 3 (8B, 70B), and Llama 2 (7B, 13B, 70B) out of the box. To get started training these models, we need to download a tokenizer.model. Follow the instructions on the official [meta-llama](https://huggingface.co/meta-llama/Meta-Llama-3-8B) repository to ensure you have access to the Llama model weights.
+## Repository Structure
 
-Once you have confirmed access, you can run the following command to download the Llama 3 / Llama 2 tokenizer to your local machine.
+![alt text](assets/report_images/solution_architecture.png)
 
-```bash
-# Get your HF token from https://huggingface.co/settings/tokens
+### Core Training
+- `train.py` - Main training script containing the training loop logic
+- `torchtitan/samplers.py` - Handles image generation/sampling during training
 
-# Llama 3 or 3.1 tokenizer.model
-python torchtitan/datasets/download_tokenizer.py --repo_id meta-llama/Meta-Llama-3-8B --tokenizer_path "original" --hf_token=...
+### Configuration
+- `torchtitan/config_manager.py` - Configuration management
+- `/train_configs/*.toml` - Configuration files
 
-# Llama 2 tokenizer.model
-python torchtitan/datasets/download_tokenizer.py --repo_id meta-llama/Llama-2-13b-hf --hf_token=...
+### Model Components
+- `torchtitan/models/llama/diffusion_blocks.py` - Core DiT components
+- `torchtitan/models/llama/diffusion_model.py` - DiT model implementation
+- `cosmos_latent_decoder.py` - Latent decoder implementation. Downloads the model from Hugging Face.
+
+### Training Optimization
+- `torchtitan/parallelisms/parallelize_llama.py` - Parallelization implementation
+- `torchtitan/parallelisms/parallel_dims.py` - Parallel dimensions handling
+
+### Data Loading
+- `data/cifar10.py` - CIFAR-10 dataset loader
+- `data/imagenet.py` - ImageNet dataset loader
+
+## Benchmarking
+
+Our results are benchmarked on 8XA100 SXM 80GB GPUs. To obtain the results obtained in the paper, please run the `scripts/run_ablations_7B.sh` and `scripts/run_ablations_0.5B.sh` scripts.
+
+While these scripts grid search over batch size, if you would like to run experiments only using maximum batch size, you may look at `scripts/run_ablations_7B_autotune.sh`, which initially tunes the batch size for each GPU using a combination of heuristics and binary search.
+
+These scripts will generate a directory under `outputs/` with the name of the experiment, the results of which you can plot using the `optimization_analysis.py` script.
+
+## Benchmarking Results
+
+
+
+
+We conduct a grid search over the following parameters to benchmark the efficiency of our implementations:
+- Automatic mixed precision
+- Parallelism strategy (ddp, fsdp, hsdp)
+- Model sizes (0.5B, 7B)
+- Batch sizes (1,2,...,1024)
+- Activation checkpointing
+- torch.compile
+
+Our benchmarking strategy involves constructing a dummy data loader which loaded a (64×64×16) tensor of black (latent) images. We train on this dummy batch for 50 steps and average the following metrics from the last 10 steps:
+- Percentage mean flop utilization (MFU %)
+- Total images per second (im/s)
+- Peak GPU memory
+
+Prior to our ablation study, as a sanity check for our modified MFU and throughput calculations, we explore the relationship between our calculated metrics and batch size to ensure that throughput, MFU, and GPU memory usage all increase monotonically with an increased batch size.
+
+In all our graphs, we use the following naming format:
+```
+dit_l_bs<batch-size>ps<patch-size>_act<activation-checkpointing-setting>_c<torch.compile setting><mixed precision param setting>p<replicate degree><shard degree>
 ```
 
-### Start a training run
-Llama 3 8B model locally on 8 GPUs
+Key findings:
 
-```bash
-CONFIG_FILE="./train_configs/llama3_8b.toml" ./run_llama_train.sh
-```
+1. **torch.compile Performance**:
+   - 70% increase in throughput for 0.5B DiT
+   - 25% increase for 7B DiT
+   - 37% decrease in maximum memory utilization for 0.5B DiT
+   - 29% decrease in memory for 7B DiT
+   - Notable spike (163% increase) in throughput for specific configuration (bs512, ps8)
 
+![0.5B Compile Effects](assets/graphs/0.5B/compile_memory_max.png)
+![0.5B Compile Throughput](assets/graphs/0.5B/compile_throughput.png)
+*Effects of torch.compile on Memory Managed and Throughput (0.5B DiT)*
 
-## TensorBoard
+![7B Compile Effects](assets/graphs/7B/compile_memory_max.png)
+![7B Compile Throughput](assets/graphs/7B/compile_throughput.png)
+*Effects of torch.compile on Memory Managed and Throughput (7B DiT)*
 
-To visualize TensorBoard metrics of models trained on a remote server via a local web browser:
+2. **Activation Checkpointing**:
+   - Selective activation checkpointing reduces memory usage by 40% (0.5B) and 33% (7B)
+   - No significant throughput improvements except in select 7B configurations
+   - Slows down torch.compile performance
 
-1. Make sure `metrics.enable_tensorboard` option is set to true in model training (either from a .toml file or from CLI).
+![0.5B Activation Effects](assets/graphs/0.5B/activation_memory.png)
+![0.5B Activation Throughput](assets/graphs/0.5B/activation_throughput.png)
+*Effects of Activation Checkpointing on Memory Managed and Throughput (0.5B DiT)*
 
-2. Set up SSH tunneling, by running the following from local CLI
-```
-ssh -L 6006:127.0.0.1:6006 [username]@[hostname]
-```
+![7B Activation Effects](assets/graphs/7B/activation_memory.png)
+![7B Activation Throughput](assets/graphs/7B/activation_throughput.png)
+*Effects of Activation Checkpointing on Memory Managed and Throughput (7B DiT)*
 
-3. Inside the SSH tunnel that logged into the remote server, go to the torchtitan repo, and start the TensorBoard backend
-```
-tensorboard --logdir=./outputs/tb
-```
+3. **Model Parallelism**:
+   - Higher throughput observed with less sharding
+   - DDP resulted in OOM errors for all 7B DiT ablations
 
-4. In the local web browser, go to the URL it provides OR to http://localhost:6006/.
+![0.5B Parallelism](assets/graphs/0.5B/hsdp_throughput.png)
+![0.5B DDP](assets/graphs/0.5B/ddp_throughput.png)
+*0.5B DiT Increase in Throughput With FSDP, HSDP, and DDP parallel modes*
 
+![7B Parallelism](assets/graphs/7B/hsdp_throughput.png)
+*7B DiT Increase in Throughput With HSDP and FSDP parallel modes*
 
-## Multi-Node Training
-For training on ParallelCluster/Slurm type configurations, you can use the `multinode_trainer.slurm` file to submit your sbatch job.
+Configuration Impact on Compile Performance:
 
-To get started adjust the number of nodes and GPUs
-```
-#SBATCH --ntasks=2
-#SBATCH --nodes=2
-```
-
-Then start a run where `nnodes` is your total node count, matching the sbatch node count above.
-
-```
-srun torchrun --nnodes 2
-```
-
-If your gpu count per node is not 8, adjust:
-
-```--nproc_per_node```
-
- in the torchrun command and
-
-```#SBATCH --gpus-per-task```
-
-in the SBATCH command section.
-
-
-## Debugging
-### Troubleshooting jobs that timeout
-If you encounter jobs that timeout, you'll need to debug them to identify the root cause. To help with this process, we've enabled Flight Recorder, a tool that continuously collects diagnostic information about your jobs.
-When a job times out, Flight Recorder automatically generates dump files on every rank containing valuable debugging data. You can find these dump files in the `job.dump_folder` directory.
-To learn how to analyze and diagnose issues using these logs, follow our step-by-step tutorial [link](https://pytorch.org/tutorials/prototype/flight_recorder_tutorial.html).
-
-
-## License
-
-This code is made available under [BSD 3 license](./LICENSE). However you may have other legal obligations that govern your use of other content, such as the terms of service for third-party models, data, etc.
+![0.5B Config Changes](assets/graphs/0.5B/compile_config_changes.png)
+![7B Config Changes](assets/graphs/7B/compile_config_changes.png)
+*Effects of configuration changes on torch.compile improvement*

@@ -24,11 +24,11 @@ enable_wandb = false
 enable_sampling = false
 
 [dataset]
-batch_size = -1 # get it from training.batch_size
-dataset_name = "imagenet_dummy"
+batch_size = 1 # get it from training.batch_size
+dataset_name = "imagenet"
 root_dir = "/local/vondrick/alper/imagenet_ci8x8.safetensors" #local/vondrick/dataset/imagenet for pixels
 num_workers = 8
-image_size = [64, 64]
+image_size = [32, 32]
 num_classes = 1000
 
 [model]

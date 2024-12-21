@@ -12,10 +12,8 @@ if not os.path.exists(plots_dir):
 
 #remove everything inside the plots dir
 os.system(f"rm -rf {plots_dir}/*")
-ablation_dir_1 = "/local/vondrick/alper/torchtitan-dit-0/outputs/ablations_20241216_000843" #DiT-S
-# ablation_dir_2 = "/local/vondrick/alper/torchtitan-dit-0/outputs/ablations_20241216_040406" #DiT-L
+ablation_dir_1 = "/local/vondrick/alper/torchtitan-dit-0/outputs/dit-7b-ablations" #DiT-S
 ablation_dirs = [ablation_dir_1]
-# ablation_dirs = [ablation_dir_2]
 experiment_dirs = [os.path.join(ablation_dir, dir) for ablation_dir in ablation_dirs for dir in os.listdir(ablation_dir) if os.path.isdir(os.path.join(ablation_dir, dir))]
 
 
@@ -26,8 +24,6 @@ def get_experiment_config_from_experiment_dir(experiment_dir):
         config_dict = json.load(f)
     out = {
         'mixed_precision_param': config_dict['training']['mixed_precision_param'],
-        # 'replicate_degree': config_dict['training']['data_parallel_replicate_degree'],
-        # 'shard_degree': config_dict['training']['data_parallel_shard_degree'],
         'batch_size': config_dict['training']['batch_size'],
         'compile': config_dict['training']['compile'],
         'model_flavor': config_dict['model']['flavor'],
@@ -35,9 +31,6 @@ def get_experiment_config_from_experiment_dir(experiment_dir):
         'activation_checkpoint': config_dict['activation_checkpoint']['mode'],
         'float8_enabled': config_dict.get('float8', {}).get('enable_float8_linear', False),
         'experiment_name': config_dict['metrics']['experiment_name'],
-        # 'hsdp': config_dict['training']['data_parallel_replicate_degree'] > 1 and config_dict['training']['data_parallel_shard_degree'] > 1,
-        # 'fsdp': config_dict['training']['data_parallel_replicate_degree'] > 1 and config_dict['training']['data_parallel_shard_degree'] == 1,
-        # 'ddp': config_dict['training']['data_parallel_replicate_degree'] == 1 and config_dict['training']['data_parallel_shard_degree'] > 1,
     }
 
     if config_dict['training']['data_parallel_replicate_degree'] > 1 and config_dict['training']['data_parallel_shard_degree'] > 1:
@@ -492,18 +485,13 @@ def plot_interaction_effects(combined_df, EFFECT_OF, MEASURE, reference_value=No
     plt.savefig(os.path.join(plots_dir, f"{name.replace('/', '_')}.png"))
     plt.show()
 
-# Example usage:
-# plot_paired_bar_comparison(combined_df, 'compile', parse_metric_name('im/s'))
-
-# for effect, reference_value in [('compile', None),]:
-
 for metric in ['im/s', 'mfu', 'memory_max_reserved']:
-    for effect, reference_value in [('data_parallel_mode', 'fsdp'), ('data_parallel_mode', 'hsdp'), ('data_parallel_mode', 'ddp'), ('compile', None), ('activation_checkpoint', 'selective')]:
+    for effect, reference_value in [('float8_enabled', None), ('data_parallel_mode', 'fsdp'), ('data_parallel_mode', 'hsdp'), ('data_parallel_mode', 'ddp'), ('compile', None), ('activation_checkpoint', 'selective')]:
         print("plotting for", effect)
         if reference_value is not None and combined_df[combined_df[effect] == reference_value].empty:
             print("skipping", effect, reference_value)
             continue
         print("columns", combined_df.columns)
-        plot_percentage_increase(combined_df, effect, parse_metric_name(metric), reference_value=reference_value)
+        # plot_percentage_increase(combined_df, effect, parse_metric_name(metric), reference_value=reference_value)
         plot_interaction_effects(combined_df, effect, parse_metric_name(metric), reference_value=reference_value)
         plot_percentage_increase_highest_batch(combined_df, effect, parse_metric_name(metric), reference_value=reference_value)
