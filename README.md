@@ -1,8 +1,8 @@
 
 
 
-# torchditan
-### COMS 6998 final project by Alper Canberk, Vaibhav Sourirajan, Shreya Somayajula.
+# TorchDiTan
+### COMS 6998 High-Performance Machine Learning final project by Alper Canberk, Vaibhav Sourirajan, Shreya Somayajula.
 
 
 
